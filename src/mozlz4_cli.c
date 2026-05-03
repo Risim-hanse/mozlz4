@@ -7,7 +7,7 @@
  *   mozlz4 [-x] input [output]    decompress (default)
  *   mozlz4 -z input [output]      compress
  *
- * use '-' for stdin (input) or stdout (output).
+ * use '-' for stdin or stdout.
  */
 
 #include "mozlz4.h"
@@ -122,7 +122,7 @@ int main(int argc, char **argv)
     if (argi < argc)
         output_path = argv[argi];
 
-    /* read input */
+    /* read the input file */
     uint8_t *input_data;
     size_t input_len;
 
@@ -143,7 +143,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    /* decompress or compress */
+    /* compress or decompress */
     uint8_t *output_data = NULL;
     size_t output_len = 0;
     int rc;

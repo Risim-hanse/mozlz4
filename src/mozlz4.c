@@ -2,9 +2,8 @@
  * mozlz4.c : Mozilla LZ4 container format implementation
  *
  * handles the "mozLz40\0" header + LZ4 block that Firefox uses
- * for search.json.mozlz4 and similar files.
- *
- * behavior matches the Rust mozlz4 crate (jusw85/mozlz4) exactly.
+ * for search.json.mozlz4 and similar files. behavior matches
+ * the Rust mozlz4 crate (jusw85/mozlz4) exactly.
  */
 
 #include "mozlz4.h"
