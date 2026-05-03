@@ -1,76 +1,53 @@
 # mozlz4
 
-a little C tool for Firefox's `search.json.mozlz4` files.
-no dependencies, no build systems, just `make` and go.
+small C tool for packing and unpacking Firefox `search.json.mozlz4` files. no dependencies, just gcc and make~
 
-## what it does
+## okay so
 
-Firefox stores your search engines in `search.json.mozlz4`. it's JSON, but wrapped in a small LZ4 container with a custom header. if you ever want to peek inside, edit your search engines by hand, or script something with them, you need something to pack and unpack it.
+Firefox keeps your search engines in this file called `search.json.mozlz4`. it's just JSON but they wrapped it in a little LZ4 container with a custom header. the format is honestly kinda cute, it's just twelve bytes of header ("mozLz40\0" plus a uint32 for decompressed size) and then a stock LZ4 block. that's it.
 
-the format is just:
+if you ever want to edit your search engines by hand or peek at what Firefox has stored, you need something to unpack this. most existing tools are either Python scripts or that Rust crate which... is mostly just wrapping the C LZ4 library anyway. so here's a C version that talks to LZ4 directly.
 
+## usage
+
+```bash
+./mozlz4 search.json.mozlz4 search.json        # decompress
+./mozlz4 -z search.json search.json.mozlz4      # compress back
+cat search.json.mozlz4 | ./mozlz4 -x - | jq .   # pipe it
 ```
-"mozLz40\0" (8 bytes) + decompressed size (4 bytes, LE) + LZ4 block
-```
 
-twelve bytes of header. that's the whole trick.
+`-x` extracts (default), `-z` compresses. use `-` for stdin/stdout.
 
-## quick start
+## building
 
 ```bash
 make && make test
 ```
 
-then:
+needs gcc. works on Linux, macOS, Windows (MSYS2).
 
-```bash
-# decompress
-./mozlz4 search.json.mozlz4 search.json
+## releases
 
-# compress back
-./mozlz4 -z search.json search.json.mozlz4
-
-# pipe around
-cat search.json.mozlz4 | ./mozlz4 -x - | jq .
-```
-
-`-x` extracts (default), `-z` compresses, `-h` shows help. use `-` for stdin or stdout.
-
-## pre-built binaries
-
-push a `v*` tag and CI builds for Linux, Windows, and macOS (x86_64 + arm64). they show up as release artifacts, all built with `-O2`.
+push a `v*` tag and CI builds everything for Linux, Windows, macOS (x86_64 + arm64). binaries show up as release artifacts~
 
 ## API
 
-`src/mozlz4.h` if you want to use it as a library:
-
-```c
-int mozlz4_decompress(const uint8_t *in, size_t in_len,
-                      uint8_t *out, size_t *out_len, size_t out_capacity);
-
-int mozlz4_compress(const uint8_t *in, size_t in_len,
-                    uint8_t *out, size_t *out_len, size_t out_capacity);
-
-size_t mozlz4_compress_bound(size_t input_size);
-uint32_t mozlz4_read_size(const uint8_t *in, size_t in_len, int *ok);
-```
-
-`MOZLZ4_OK` on success, negative error code on failure. details in the header~
+`src/mozlz4.h` has the full API if you want to use it as a library. `MOZLZ4_OK` on success, negative error codes on failure. check the header, it's pretty short.
 
 ## layout
 
 ```
-src/mozlz4.h          the API
-src/mozlz4.c          format implementation
-src/mozlz4_cli.c      CLI
-lz4/                   LZ4 v1.9.3, vendored from Mozilla's gecko-dev
-test/test_mozlz4.c    37 tests
+src/mozlz4.h        the API
+src/mozlz4.c        format implementation
+src/mozlz4_cli.c    CLI tool
+lz4/                 LZ4 v1.9.3 vendored from Mozilla's gecko-dev
+test/test_mozlz4.c  37 tests
 ```
 
 ## why C
 
-the Rust crate that does this (`jusw85/mozlz4`) is mostly a wrapper around LZ4, which is C anyway. this version skips the wrapper layer and talks to LZ4 directly. same behavior, one `gcc` call, no cargo needed.
+the Rust crate (`jusw85/mozlz4`) is fine but it felt like wearing a coat indoors. LZ4 is C, the format is simple, the whole thing is like 500 lines. cargo and build.rs felt like overkill. this version is just... the thing itself. one gcc call and you're done~
 
 ## license
 
-mozlz4 wrapper: public domain. LZ4: BSD-2-Clause by Yann Collet.
+mozlz4 wrapper is public domain. LZ4 is BSD-2-Clause by Yann Collet.
