@@ -14,3 +14,4 @@ test_mozlz4.exe
 # os stuff
 .DS_Store
 Thumbs.db
+*.o

@@ -9,6 +9,11 @@ ifdef SANITIZE
   LDFLAGS += -fsanitize=address,undefined
 endif
 
+# make ARCH=arm64 (or x86_64) for cross-compilation on macOS
+ifdef ARCH
+  CFLAGS += -arch $(ARCH)
+endif
+
 UNAME_S := $(shell uname -s 2>/dev/null || echo Windows)
 ifeq ($(UNAME_S),Linux)
   LDFLAGS += -s -Wl,--gc-sections -Wl,-z,relro,-z,now
@@ -17,7 +22,7 @@ ifeq ($(UNAME_S),Linux)
   EXE     =
 else ifeq ($(UNAME_S),Darwin)
   LDFLAGS += -dead_strip
-  CFLAGS  += -fno-math-errno -fomit-frame-pointer \
+  CFLAGS  += -fno-math-errno -fstack-protector-strong -fomit-frame-pointer \
              -ffunction-sections -fdata-sections
   EXE     =
 else
