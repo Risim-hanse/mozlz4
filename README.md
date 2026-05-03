@@ -54,7 +54,9 @@ needs `clang`. exercises the decompression path with coverage-guided random inpu
 
 ## pre-built binaries
 
-push a tag and the CI builds everything:
+grab the latest release from the [releases page](https://github.com/Risim-hanse/mozlz4/releases).
+
+or push a tag and the CI builds everything:
 
 ```bash
 git tag v0.1.0-alpha.1
