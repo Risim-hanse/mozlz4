@@ -1,5 +1,5 @@
 /*
- * mozlz4.h — Mozilla LZ4 container format (mozLz40)
+ * mozlz4.h : Mozilla LZ4 container format (mozLz40)
  *
  * the format is just LZ4 with a custom header:
  *   [8 bytes magic "mozLz40\0"][4 bytes LE decompressed size][LZ4 block]
@@ -24,7 +24,7 @@ extern "C" {
 #define MOZLZ4_ERR_DECOMPRESS -3   /* LZ4 decompression failed */
 #define MOZLZ4_ERR_COMPRESS   -4   /* LZ4 compression failed */
 
-/* magic: "mozLz40\0" — 8 bytes including the null terminator */
+/* magic: "mozLz40\0" : 8 bytes including the null terminator */
 #define MOZLZ4_MAGIC      "mozLz40"
 #define MOZLZ4_MAGIC_LEN  8
 

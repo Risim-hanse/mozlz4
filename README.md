@@ -28,9 +28,9 @@ cat search.json.mozlz4 | ./mozlz4 -x - | jq .
 ```
 
 flags:
-- `-x, --extract` — decompress (this is the default)
-- `-z, --compress` — compress
-- `-h, --help` — you know what this does
+- `-x, --extract` : decompress (this is the default)
+- `-z, --compress` : compress
+- `-h, --help` : you know what this does
 
 use `-` for stdin on input or stdout on output.
 
@@ -54,10 +54,10 @@ git push origin v1.0.0
 ```
 
 you'll get:
-- **Linux x86_64** — `.tar.gz`
-- **Windows x86_64** — `.zip`
-- **macOS x86_64** — `.tar.gz`
-- **macOS arm64** — `.tar.gz`
+- **Linux x86_64** : `.tar.gz`
+- **Windows x86_64** : `.zip`
+- **macOS x86_64** : `.tar.gz`
+- **macOS arm64** : `.tar.gz`
 
 all built with `-O2`, no `-march=native`, so they'll run basically anywhere.
 

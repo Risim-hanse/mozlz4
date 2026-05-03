@@ -1,5 +1,5 @@
 /*
- * mozlz4.c — Mozilla LZ4 container format implementation
+ * mozlz4.c : Mozilla LZ4 container format implementation
  *
  * handles the "mozLz40\0" header + LZ4 block that Firefox uses
  * for search.json.mozlz4 and similar files.
@@ -17,7 +17,7 @@ static const uint8_t MOZLZ4_MAGIC_BYTES[MOZLZ4_MAGIC_LEN] = {
     'm', 'o', 'z', 'L', 'z', '4', '0', '\0'
 };
 
-/* little-endian uint32 read/write — the header stores decompressed size in LE */
+/* little-endian uint32 read/write : the header stores decompressed size in LE */
 static uint32_t read_u32_le(const uint8_t *p)
 {
     return (uint32_t)p[0]

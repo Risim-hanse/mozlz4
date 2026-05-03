@@ -1,5 +1,5 @@
 /*
- * mozlz4_cli.c — CLI for mozlz4 compress/decompress
+ * mozlz4_cli.c : CLI for mozlz4 compress/decompress
  *
  * drop-in replacement for the Rust mozlz4-bin tool.
  *

@@ -1,5 +1,5 @@
 /*
- * test_mozlz4.c — test suite for the mozlz4 format
+ * test_mozlz4.c : test suite for the mozlz4 format
  *
  * build: make test
  * run:   ./test_mozlz4
