@@ -137,8 +137,8 @@ none. LZ4 v1.9.3 is vendored in `lz4/`, pulled from Mozilla's gecko-dev tree.
 
 ## contributors
 
-- **Risim-hanse** -- original C implementation, build system, CI, fuzzing
-- **Lumine** -- code cleanup, comment style, README polish
+- **Risim-hanse** ~> original C implementation, build system, CI, fuzzing
+- **Lumine** ~> code cleanup, comment style, README polish
 
 ## license
 
