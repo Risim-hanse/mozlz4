@@ -1,46 +1,23 @@
 /*
  * test_mozlz4.c : test suite for the mozlz4 format
  *
- * build: make test
- * run:   ./test_mozlz4
+ * uses mu (munit) for fork-per-test isolation, proper assert macros,
+ * and filterable test names. run with:
  *
- * 37 tests across 6 groups: magic number, size field, roundtrip,
- * compression format, decompression behavior, and edge cases.
+ *   make test                          all tests
+ *   ./test_mozlz4 /mozlz4/magic       just the magic tests
+ *   ./test_mozlz4 --list               list all test names
+ *   make SANITIZE=1 test               ASan+UBSan build
  */
 
 #include "mozlz4.h"
 #include "lz4.h"
+#include "vendor/munit.h"
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-
-static int tests_run = 0;
-static int tests_passed = 0;
-static int tests_failed = 0;
-
-#define TEST_START(name) do { \
-    tests_run++; \
-    printf("  [%02d] %-60s ", tests_run, name); \
-    fflush(stdout); \
-} while(0)
-
-#define TEST_PASS() do { tests_passed++; printf("PASS\n"); } while(0)
-
-#define TEST_FAIL(msg) do { tests_failed++; printf("FAIL: %s\n", msg); } while(0)
-
-#define ASSERT_EQ(a, b, msg) do { \
-    if ((a) != (b)) { TEST_FAIL(msg); return; } \
-} while(0)
-
-#define ASSERT_TRUE(cond, msg) do { \
-    if (!(cond)) { TEST_FAIL(msg); return; } \
-} while(0)
-
-#define ASSERT_MEM_EQ(a, b, len, msg) do { \
-    if (memcmp((a), (b), (len)) != 0) { TEST_FAIL(msg); return; } \
-} while(0)
+#include <limits.h>
 
 static const uint8_t RUST_MAGIC[] = {'m', 'o', 'z', 'L', 'z', '4', '0', '\0'};
 
@@ -52,34 +29,16 @@ static void put_u32_le(uint8_t *p, uint32_t v)
     p[3] = (uint8_t)(v >> 24);
 }
 
-__attribute__((unused))
-static uint8_t *build_mozlz4(const uint8_t *data, size_t data_len,
-                             size_t *out_total_len)
-{
-    int cbound = LZ4_compressBound((int)data_len);
-    size_t total = MOZLZ4_HEADER_LEN + (size_t)cbound;
-    uint8_t *buf = (uint8_t *)malloc(total);
-    int compressed;
-    if (!buf) return NULL;
-
-    memcpy(buf, RUST_MAGIC, MOZLZ4_MAGIC_LEN);
-    put_u32_le(buf + 8, (uint32_t)data_len);
-
-    compressed = LZ4_compress_default(
-        (const char *)data, (char *)(buf + MOZLZ4_HEADER_LEN),
-        (int)data_len, cbound);
-    if (compressed <= 0) { free(buf); return NULL; }
-
-    *out_total_len = MOZLZ4_HEADER_LEN + (size_t)compressed;
-    return buf;
-}
-
-/* compress, decompress, verify the roundtrip preserves every byte */
+/*
+ * roundtrip: compress, decompress, verify byte-for-byte.
+ * returns 0 on success, or a negative stage code:
+ *  -1 alloc, -2 compress, -3 decompress, -4 mismatch
+ */
 static int roundtrip(const uint8_t *data, size_t data_len)
 {
     size_t cbound = mozlz4_compress_bound(data_len);
-    uint8_t *compressed = (uint8_t *)malloc(cbound);
-    uint8_t *decompressed = (uint8_t *)malloc(data_len + 64);
+    uint8_t *compressed = malloc(cbound > 0 ? cbound : 1);
+    uint8_t *decompressed = malloc(data_len + 64);
     size_t comp_len = 0, decomp_len = 0;
     int rc;
 
@@ -90,15 +49,15 @@ static int roundtrip(const uint8_t *data, size_t data_len)
     }
 
     rc = mozlz4_compress(data, data_len, compressed, &comp_len, cbound);
-    if (rc != MOZLZ4_OK) { free(compressed); free(decompressed); return -1; }
+    if (rc != MOZLZ4_OK) { free(compressed); free(decompressed); return -2; }
 
     rc = mozlz4_decompress(compressed, comp_len, decompressed, &decomp_len, data_len + 64);
-    if (rc != MOZLZ4_OK) { free(compressed); free(decompressed); return -1; }
+    if (rc != MOZLZ4_OK) { free(compressed); free(decompressed); return -3; }
 
     if (decomp_len != data_len || memcmp(data, decompressed, data_len) != 0) {
         free(compressed);
         free(decompressed);
-        return -1;
+        return -4;
     }
 
     free(compressed);
@@ -106,634 +65,655 @@ static int roundtrip(const uint8_t *data, size_t data_len)
     return 0;
 }
 
+static const char *roundtrip_errstr(int rc)
+{
+    switch (rc) {
+    case -1: return "allocation failed";
+    case -2: return "compression failed";
+    case -3: return "decompression failed";
+    case -4: return "data mismatch";
+    default: return "unknown error";
+    }
+}
+
+
+/* ─── null arguments ─── */
+
+static MunitResult test_null_in_decompress(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    size_t out_len; uint8_t out[64];
+    munit_assert_int(mozlz4_decompress(NULL, 0, out, &out_len, sizeof(out)), ==, MOZLZ4_ERR_NULL);
+    return MUNIT_OK;
+}
+
+static MunitResult test_null_out_decompress(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    uint8_t in[12] = {0}; size_t out_len;
+    munit_assert_int(mozlz4_decompress(in, sizeof(in), NULL, &out_len, 0), ==, MOZLZ4_ERR_NULL);
+    return MUNIT_OK;
+}
+
+static MunitResult test_null_outlen_decompress(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    uint8_t in[12] = {0}; uint8_t out[64];
+    munit_assert_int(mozlz4_decompress(in, sizeof(in), out, NULL, sizeof(out)), ==, MOZLZ4_ERR_NULL);
+    return MUNIT_OK;
+}
+
+static MunitResult test_null_in_compress(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    uint8_t out[64]; size_t out_len;
+    munit_assert_int(mozlz4_compress(NULL, 0, out, &out_len, sizeof(out)), ==, MOZLZ4_ERR_NULL);
+    return MUNIT_OK;
+}
+
+static MunitResult test_null_out_compress(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    uint8_t in[4] = {1,2,3,4}; size_t out_len;
+    munit_assert_int(mozlz4_compress(in, sizeof(in), NULL, &out_len, 0), ==, MOZLZ4_ERR_NULL);
+    return MUNIT_OK;
+}
+
+static MunitResult test_null_outlen_compress(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    uint8_t in[4] = {1,2,3,4}; uint8_t out[64];
+    munit_assert_int(mozlz4_compress(in, sizeof(in), out, NULL, sizeof(out)), ==, MOZLZ4_ERR_NULL);
+    return MUNIT_OK;
+}
+
+static MunitResult test_null_outsize_read(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    uint8_t buf[MOZLZ4_HEADER_LEN];
+    memcpy(buf, RUST_MAGIC, MOZLZ4_MAGIC_LEN);
+    put_u32_le(buf + 8, 42);
+    munit_assert_int(mozlz4_read_size(buf, sizeof(buf), NULL), ==, MOZLZ4_ERR_NULL);
+    return MUNIT_OK;
+}
+
+
+/* ─── too-large inputs ─── */
+
+static MunitResult test_compress_too_large(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    uint8_t dummy[1] = {0}; size_t out_len; uint8_t out[64];
+    munit_assert_int(mozlz4_compress(dummy, (size_t)LZ4_MAX_INPUT_SIZE + 1, out, &out_len, sizeof(out)), ==, MOZLZ4_ERR_TOO_LARGE);
+    return MUNIT_OK;
+}
+
+static MunitResult test_compress_bound_too_large(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    munit_assert_size(mozlz4_compress_bound((size_t)LZ4_MAX_INPUT_SIZE + 1), ==, 0);
+    return MUNIT_OK;
+}
+
+static MunitResult test_decompress_too_large_size(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    uint8_t buf[MOZLZ4_HEADER_LEN + 8];
+    memcpy(buf, RUST_MAGIC, MOZLZ4_MAGIC_LEN);
+    put_u32_le(buf + 8, 0x80000000);
+    memset(buf + MOZLZ4_HEADER_LEN, 0, 8);
+    uint8_t out[64]; size_t out_len;
+    munit_assert_int(mozlz4_decompress(buf, sizeof(buf), out, &out_len, sizeof(out)), !=, MOZLZ4_OK);
+    return MUNIT_OK;
+}
+
 
 /* ─── magic number ─── */
 
-static void test_magic_exact_match(void)
-{
-    TEST_START("magic is exactly 'mozLz40\\0' (8 bytes)");
-    ASSERT_EQ(sizeof(RUST_MAGIC), (size_t)8, "magic should be 8 bytes");
-    ASSERT_EQ(RUST_MAGIC[0], 'm', "byte 0");
-    ASSERT_EQ(RUST_MAGIC[7], '\0', "byte 7 null terminator");
-    TEST_PASS();
+static MunitResult test_magic_exact_match(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    munit_assert_size(sizeof(RUST_MAGIC), ==, 8);
+    munit_assert_uint8(RUST_MAGIC[0], ==, 'm');
+    munit_assert_uint8(RUST_MAGIC[7], ==, '\0');
+    return MUNIT_OK;
 }
 
-static void test_magic_reject_wrong_prefix(void)
-{
-    TEST_START("reject wrong magic number");
+static MunitResult test_magic_reject_wrong_prefix(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
     uint8_t bad[] = {'m','o','z','L','z','4','1','\0', 0,0,0,0, 0};
-    size_t out_len;
-    uint8_t out[64];
-    int rc = mozlz4_decompress(bad, sizeof(bad), out, &out_len, sizeof(out));
-    ASSERT_EQ(rc, MOZLZ4_ERR_MAGIC, "should reject wrong magic");
-    TEST_PASS();
+    size_t out_len; uint8_t out[64];
+    munit_assert_int(mozlz4_decompress(bad, sizeof(bad), out, &out_len, sizeof(out)), ==, MOZLZ4_ERR_MAGIC);
+    return MUNIT_OK;
 }
 
-static void test_magic_reject_lowercase(void)
-{
-    TEST_START("reject lowercase variant 'mozlz40\\0'");
+static MunitResult test_magic_reject_lowercase(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
     uint8_t bad[] = {'m','o','z','l','z','4','0','\0', 0,0,0,0};
-    size_t out_len;
-    uint8_t out[64];
-    int rc = mozlz4_decompress(bad, sizeof(bad), out, &out_len, sizeof(out));
-    ASSERT_EQ(rc, MOZLZ4_ERR_MAGIC, "should reject lowercase");
-    TEST_PASS();
+    size_t out_len; uint8_t out[64];
+    munit_assert_int(mozlz4_decompress(bad, sizeof(bad), out, &out_len, sizeof(out)), ==, MOZLZ4_ERR_MAGIC);
+    return MUNIT_OK;
 }
 
-static void test_magic_reject_no_null(void)
-{
-    TEST_START("reject 'mozLz40X' (no null terminator)");
+static MunitResult test_magic_reject_no_null(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
     uint8_t bad[] = {'m','o','z','L','z','4','0','X', 0,0,0,0};
-    size_t out_len;
-    uint8_t out[64];
-    int rc = mozlz4_decompress(bad, sizeof(bad), out, &out_len, sizeof(out));
-    ASSERT_EQ(rc, MOZLZ4_ERR_MAGIC, "should reject non-null terminator");
-    TEST_PASS();
+    size_t out_len; uint8_t out[64];
+    munit_assert_int(mozlz4_decompress(bad, sizeof(bad), out, &out_len, sizeof(out)), ==, MOZLZ4_ERR_MAGIC);
+    return MUNIT_OK;
 }
 
-static void test_magic_reject_empty(void)
-{
-    TEST_START("reject empty input");
-    size_t out_len;
-    uint8_t out[64];
-    int rc = mozlz4_decompress((const uint8_t *)"", 0, out, &out_len, sizeof(out));
-    ASSERT_TRUE(rc != MOZLZ4_OK, "should reject empty input");
-    TEST_PASS();
+static MunitResult test_magic_reject_empty(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    size_t out_len; uint8_t out[64];
+    munit_assert_int(mozlz4_decompress((const uint8_t *)"", 0, out, &out_len, sizeof(out)), !=, MOZLZ4_OK);
+    return MUNIT_OK;
 }
 
-static void test_magic_reject_short_input(void)
-{
-    TEST_START("reject input shorter than 12 bytes (header)");
+static MunitResult test_magic_reject_short_input(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
     uint8_t short_input[] = {'m','o','z','L','z','4','0','\0', 0,0,0};
-    size_t out_len;
-    uint8_t out[64];
-    int rc = mozlz4_decompress(short_input, sizeof(short_input), out, &out_len, sizeof(out));
-    ASSERT_TRUE(rc != MOZLZ4_OK, "should reject short input");
-    TEST_PASS();
+    size_t out_len; uint8_t out[64];
+    munit_assert_int(mozlz4_decompress(short_input, sizeof(short_input), out, &out_len, sizeof(out)), !=, MOZLZ4_OK);
+    return MUNIT_OK;
 }
 
-static void test_magic_header_exact_12(void)
-{
-    TEST_START("accept 12-byte header-only input (decompressed_size=0)");
+static MunitResult test_magic_header_exact_12(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
     uint8_t header[] = {'m','o','z','L','z','4','0','\0', 0,0,0,0};
-    size_t out_len = 99;
-    uint8_t out[64];
+    size_t out_len = 99; uint8_t out[64];
     int rc = mozlz4_decompress(header, sizeof(header), out, &out_len, sizeof(out));
-    ASSERT_EQ(rc, MOZLZ4_OK, "12-byte header should succeed for size=0");
-    ASSERT_EQ(out_len, (size_t)0, "decompressed length should be 0");
-    TEST_PASS();
+    munit_assert_int(rc, ==, MOZLZ4_OK);
+    munit_assert_size(out_len, ==, 0);
+    return MUNIT_OK;
 }
 
 
 /* ─── size field ─── */
 
-static void test_size_field_le_encoding(void)
-{
-    TEST_START("size field is little-endian uint32 at offset 8");
+static MunitResult test_size_field_le_encoding(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
     uint8_t buf[MOZLZ4_HEADER_LEN];
     memcpy(buf, RUST_MAGIC, MOZLZ4_MAGIC_LEN);
     put_u32_le(buf + 8, 0x04030201);
-    ASSERT_EQ(buf[8],  0x01, "LE byte 0");
-    ASSERT_EQ(buf[9],  0x02, "LE byte 1");
-    ASSERT_EQ(buf[10], 0x03, "LE byte 2");
-    ASSERT_EQ(buf[11], 0x04, "LE byte 3");
-    TEST_PASS();
+    munit_assert_uint8(buf[8],  ==, 0x01);
+    munit_assert_uint8(buf[9],  ==, 0x02);
+    munit_assert_uint8(buf[10], ==, 0x03);
+    munit_assert_uint8(buf[11], ==, 0x04);
+    return MUNIT_OK;
 }
 
-static void test_size_field_read(void)
-{
-    TEST_START("mozlz4_read_size reads LE size correctly");
+static MunitResult test_size_field_read(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
     uint8_t buf[MOZLZ4_HEADER_LEN];
-    int ok = 0;
     memcpy(buf, RUST_MAGIC, MOZLZ4_MAGIC_LEN);
     put_u32_le(buf + 8, 12345);
-    uint32_t sz = mozlz4_read_size(buf, sizeof(buf), &ok);
-    ASSERT_EQ(ok, 1, "ok flag");
-    ASSERT_EQ(sz, (uint32_t)12345, "size value");
-    TEST_PASS();
+    uint32_t sz = 0;
+    munit_assert_int(mozlz4_read_size(buf, sizeof(buf), &sz), ==, MOZLZ4_OK);
+    munit_assert_uint32(sz, ==, 12345);
+    return MUNIT_OK;
 }
 
-static void test_size_field_bad_magic(void)
-{
-    TEST_START("mozlz4_read_size returns 0 and ok=0 on bad magic");
+static MunitResult test_size_field_bad_magic(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
     uint8_t buf[MOZLZ4_HEADER_LEN];
     memset(buf, 0, sizeof(buf));
-    int ok = 1;
-    uint32_t sz = mozlz4_read_size(buf, sizeof(buf), &ok);
-    ASSERT_EQ(ok, 0, "ok flag should be 0");
-    ASSERT_EQ(sz, (uint32_t)0, "size should be 0");
-    TEST_PASS();
+    uint32_t sz = 99;
+    munit_assert_int(mozlz4_read_size(buf, sizeof(buf), &sz), ==, MOZLZ4_ERR_MAGIC);
+    munit_assert_uint32(sz, ==, 0);
+    return MUNIT_OK;
 }
 
-static void test_size_field_max_value(void)
-{
-    TEST_START("size field handles max uint32 (0xFFFFFFFF)");
+static MunitResult test_size_field_max_value(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
     uint8_t buf[MOZLZ4_HEADER_LEN];
     memcpy(buf, RUST_MAGIC, MOZLZ4_MAGIC_LEN);
     put_u32_le(buf + 8, 0xFFFFFFFF);
-    int ok = 0;
-    uint32_t sz = mozlz4_read_size(buf, sizeof(buf), &ok);
-    ASSERT_EQ(ok, 1, "ok flag");
-    ASSERT_EQ(sz, (uint32_t)0xFFFFFFFF, "max uint32");
-    TEST_PASS();
+    uint32_t sz = 0;
+    munit_assert_int(mozlz4_read_size(buf, sizeof(buf), &sz), ==, MOZLZ4_OK);
+    munit_assert_uint32(sz, ==, 0xFFFFFFFF);
+    return MUNIT_OK;
+}
+
+static MunitResult test_size_field_zero(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    uint8_t buf[MOZLZ4_HEADER_LEN];
+    memcpy(buf, RUST_MAGIC, MOZLZ4_MAGIC_LEN);
+    put_u32_le(buf + 8, 0);
+    uint32_t sz = 99;
+    munit_assert_int(mozlz4_read_size(buf, sizeof(buf), &sz), ==, MOZLZ4_OK);
+    munit_assert_uint32(sz, ==, 0);
+    return MUNIT_OK;
+}
+
+static MunitResult test_size_field_too_short(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    uint8_t buf[] = {'m','o','z','L','z','4','0','\0', 0,0,0};
+    uint32_t sz = 99;
+    munit_assert_int(mozlz4_read_size(buf, sizeof(buf), &sz), ==, MOZLZ4_ERR_TOO_SHORT);
+    return MUNIT_OK;
 }
 
 
-/* ─── roundtrip (compress then decompress) ─── */
+/* ─── roundtrip ─── */
 
-static void test_roundtrip_empty(void)
-{
-    TEST_START("roundtrip: empty data (0 bytes)");
-    ASSERT_EQ(roundtrip((const uint8_t *)"", 0), 0, "empty roundtrip");
-    TEST_PASS();
+static MunitResult test_roundtrip_empty(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    munit_assert_int(roundtrip((const uint8_t *)"", 0), ==, 0);
+    return MUNIT_OK;
 }
 
-static void test_roundtrip_single_byte(void)
-{
-    TEST_START("roundtrip: single byte");
-    uint8_t data[] = {0x42};
-    ASSERT_EQ(roundtrip(data, 1), 0, "single byte roundtrip");
-    TEST_PASS();
+static MunitResult test_roundtrip_single_byte(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    uint8_t v[] = {0x42};
+    munit_assert_int(roundtrip(v, 1), ==, 0);
+    return MUNIT_OK;
 }
 
-static void test_roundtrip_hello(void)
-{
-    TEST_START("roundtrip: 'Hello, World!'");
-    const uint8_t *data = (const uint8_t *)"Hello, World!";
-    ASSERT_EQ(roundtrip(data, 13), 0, "hello roundtrip");
-    TEST_PASS();
+static MunitResult test_roundtrip_hello(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    munit_assert_int(roundtrip((const uint8_t *)"Hello, World!", 13), ==, 0);
+    return MUNIT_OK;
 }
 
-static void test_roundtrip_small_json(void)
-{
-    TEST_START("roundtrip: small JSON (simulating search.json)");
+static MunitResult test_roundtrip_small_json(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
     const char *json = "{\"engines\":[{\"name\":\"Google\",\"url\":\"https://google.com/search?q={searchTerms}\"}]}";
-    ASSERT_EQ(roundtrip((const uint8_t *)json, strlen(json)), 0, "json roundtrip");
-    TEST_PASS();
+    munit_assert_int(roundtrip((const uint8_t *)json, strlen(json)), ==, 0);
+    return MUNIT_OK;
 }
 
-static void test_roundtrip_1kb_repetitive(void)
-{
-    TEST_START("roundtrip: 1KB repetitive data (highly compressible)");
-    uint8_t data[1024];
-    memset(data, 'A', sizeof(data));
-    ASSERT_EQ(roundtrip(data, sizeof(data)), 0, "1kb repetitive roundtrip");
-    TEST_PASS();
+static MunitResult test_roundtrip_1kb_repetitive(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    uint8_t v[1024];
+    memset(v, 'A', sizeof(v));
+    munit_assert_int(roundtrip(v, sizeof(v)), ==, 0);
+    return MUNIT_OK;
 }
 
-static void test_roundtrip_1kb_random(void)
-{
-    TEST_START("roundtrip: 1KB pseudo-random data");
-    uint8_t data[1024];
+static MunitResult test_roundtrip_1kb_random(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    uint8_t v[1024];
     uint32_t state = 12345;
-    for (size_t i = 0; i < sizeof(data); i++) {
+    for (size_t i = 0; i < sizeof(v); i++) {
         state = state * 1103515245 + 12345;
-        data[i] = (uint8_t)(state >> 16);
+        v[i] = (uint8_t)(state >> 16);
     }
-    ASSERT_EQ(roundtrip(data, sizeof(data)), 0, "1kb random roundtrip");
-    TEST_PASS();
+    munit_assert_int(roundtrip(v, sizeof(v)), ==, 0);
+    return MUNIT_OK;
 }
 
-static void test_roundtrip_4kb_json_like(void)
-{
-    TEST_START("roundtrip: 4KB JSON-like data");
-    char data[4096];
+static MunitResult test_roundtrip_4kb_json_like(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    char v[4096];
     int pos = 0;
-    for (int i = 0; i < 50 && pos < (int)sizeof(data) - 100; i++) {
-        pos += snprintf(data + pos, sizeof(data) - (size_t)pos,
+    for (int i = 0; i < 50 && pos < (int)sizeof(v) - 100; i++) {
+        pos += snprintf(v + pos, sizeof(v) - (size_t)pos,
             "{\"id\":%d,\"name\":\"engine_%d\",\"url\":\"https://example.com/search?q=test_%d\"},",
             i, i, i);
     }
-    data[pos] = '\0';
-    ASSERT_EQ(roundtrip((const uint8_t *)data, (size_t)pos), 0, "4kb json roundtrip");
-    TEST_PASS();
+    v[pos] = '\0';
+    munit_assert_int(roundtrip((const uint8_t *)v, (size_t)pos), ==, 0);
+    return MUNIT_OK;
 }
 
-static void test_roundtrip_64kb(void)
-{
-    TEST_START("roundtrip: 64KB data");
+static MunitResult test_roundtrip_64kb(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
     size_t sz = 65536;
-    uint8_t *data = (uint8_t *)malloc(sz);
-    ASSERT_TRUE(data != NULL, "alloc failed");
-    for (size_t i = 0; i < sz; i++)
-        data[i] = (uint8_t)(i & 0xFF);
-    ASSERT_EQ(roundtrip(data, sz), 0, "64kb roundtrip");
-    free(data);
-    TEST_PASS();
+    uint8_t *v = malloc(sz);
+    munit_assert_ptr_not_null(v);
+    for (size_t i = 0; i < sz; i++) v[i] = (uint8_t)(i & 0xFF);
+    int rc = roundtrip(v, sz);
+    free(v);
+    munit_assert_int(rc, ==, 0);
+    return MUNIT_OK;
 }
 
-static void test_roundtrip_all_zeros(void)
-{
-    TEST_START("roundtrip: 256 bytes of zeros");
-    uint8_t data[256];
-    memset(data, 0, sizeof(data));
-    ASSERT_EQ(roundtrip(data, sizeof(data)), 0, "zeros roundtrip");
-    TEST_PASS();
+static MunitResult test_roundtrip_all_zeros(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    uint8_t v[256];
+    memset(v, 0, sizeof(v));
+    munit_assert_int(roundtrip(v, sizeof(v)), ==, 0);
+    return MUNIT_OK;
 }
 
-static void test_roundtrip_all_0xff(void)
-{
-    TEST_START("roundtrip: 256 bytes of 0xFF");
-    uint8_t data[256];
-    memset(data, 0xFF, sizeof(data));
-    ASSERT_EQ(roundtrip(data, sizeof(data)), 0, "0xff roundtrip");
-    TEST_PASS();
+static MunitResult test_roundtrip_all_0xff(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    uint8_t v[256];
+    memset(v, 0xFF, sizeof(v));
+    munit_assert_int(roundtrip(v, sizeof(v)), ==, 0);
+    return MUNIT_OK;
 }
 
-static void test_roundtrip_binary_pattern(void)
-{
-    TEST_START("roundtrip: binary pattern data");
-    uint8_t data[512];
-    for (size_t i = 0; i < sizeof(data); i++)
-        data[i] = (uint8_t)((i * 7 + 13) ^ (i >> 3));
-    ASSERT_EQ(roundtrip(data, sizeof(data)), 0, "binary pattern roundtrip");
-    TEST_PASS();
+static MunitResult test_roundtrip_binary_pattern(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    uint8_t v[512];
+    for (size_t i = 0; i < sizeof(v); i++)
+        v[i] = (uint8_t)((i * 7 + 13) ^ (i >> 3));
+    munit_assert_int(roundtrip(v, sizeof(v)), ==, 0);
+    return MUNIT_OK;
 }
 
 
 /* ─── compression format ─── */
 
-static void test_compress_header_layout(void)
-{
-    TEST_START("compressed output has correct header layout");
+static MunitResult test_compress_header_layout(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
     const char *input = "test data for header layout check";
     size_t in_len = strlen(input);
     size_t cbound = mozlz4_compress_bound(in_len);
-    uint8_t *out = (uint8_t *)malloc(cbound);
+    uint8_t *out = malloc(cbound);
     size_t out_len = 0;
-    ASSERT_TRUE(out != NULL, "alloc");
+    munit_assert_ptr_not_null(out);
 
-    int rc = mozlz4_compress((const uint8_t *)input, in_len, out, &out_len, cbound);
-    ASSERT_EQ(rc, MOZLZ4_OK, "compress ok");
-    ASSERT_MEM_EQ(out, RUST_MAGIC, MOZLZ4_MAGIC_LEN, "magic bytes");
+    munit_assert_int(mozlz4_compress((const uint8_t *)input, in_len, out, &out_len, cbound), ==, MOZLZ4_OK);
+    munit_assert_memory_equal(MOZLZ4_MAGIC_LEN, out, RUST_MAGIC);
 
-    uint32_t stored_size = (uint32_t)out[8] | ((uint32_t)out[9] << 8) |
-                           ((uint32_t)out[10] << 16) | ((uint32_t)out[11] << 24);
-    ASSERT_EQ(stored_size, (uint32_t)in_len, "stored decompressed size");
-    ASSERT_TRUE(out_len > MOZLZ4_HEADER_LEN, "output has compressed data");
+    uint32_t stored_size = 0;
+    munit_assert_int(mozlz4_read_size(out, out_len, &stored_size), ==, MOZLZ4_OK);
+    munit_assert_uint32(stored_size, ==, (uint32_t)in_len);
+    munit_assert_size(out_len, >, MOZLZ4_HEADER_LEN);
 
     free(out);
-    TEST_PASS();
+    return MUNIT_OK;
 }
 
-static void test_compress_outlen_consistency(void)
-{
-    TEST_START("compressed size is consistent with header + data");
+static MunitResult test_compress_outlen_consistency(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
     const char *input = "consistency check data";
     size_t in_len = strlen(input);
     size_t cbound = mozlz4_compress_bound(in_len);
-    uint8_t *out = (uint8_t *)malloc(cbound);
+    uint8_t *out = malloc(cbound);
     size_t out_len = 0;
-    ASSERT_TRUE(out != NULL, "alloc");
+    munit_assert_ptr_not_null(out);
 
-    int rc = mozlz4_compress((const uint8_t *)input, in_len, out, &out_len, cbound);
-    ASSERT_EQ(rc, MOZLZ4_OK, "compress ok");
+    munit_assert_int(mozlz4_compress((const uint8_t *)input, in_len, out, &out_len, cbound), ==, MOZLZ4_OK);
 
-    uint8_t *decomp = (uint8_t *)malloc(in_len + 64);
+    uint8_t *decomp = malloc(in_len + 64);
     size_t decomp_len = 0;
-    ASSERT_TRUE(decomp != NULL, "alloc decomp");
-    rc = mozlz4_decompress(out, out_len, decomp, &decomp_len, in_len + 64);
-    ASSERT_EQ(rc, MOZLZ4_OK, "decompress ok");
-    ASSERT_EQ(decomp_len, in_len, "decompressed size matches original");
+    munit_assert_ptr_not_null(decomp);
+    munit_assert_int(mozlz4_decompress(out, out_len, decomp, &decomp_len, in_len + 64), ==, MOZLZ4_OK);
+    munit_assert_size(decomp_len, ==, in_len);
 
     free(out);
     free(decomp);
-    TEST_PASS();
+    return MUNIT_OK;
 }
 
-static void test_compress_bound_value(void)
-{
-    TEST_START("mozlz4_compress_bound >= header + LZ4_compressBound");
+static MunitResult test_compress_bound_value(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
     for (size_t sz = 0; sz <= 10000; sz = sz < 100 ? sz + 1 : sz * 3 + 1) {
         size_t mozlz4_bound = mozlz4_compress_bound(sz);
         int lz4_bound = LZ4_compressBound((int)sz);
         size_t expected_min = MOZLZ4_HEADER_LEN + (size_t)(lz4_bound > 0 ? lz4_bound : 0);
-        if (mozlz4_bound < expected_min) {
-            char msg[128];
-            snprintf(msg, sizeof(msg), "bound too small for size %zu", sz);
-            TEST_FAIL(msg);
-            return;
-        }
+        munit_assert_size(mozlz4_bound, >=, expected_min);
     }
-    TEST_PASS();
+    return MUNIT_OK;
 }
 
 
 /* ─── decompression behavior ─── */
 
-static void test_decompress_exact_match(void)
-{
-    TEST_START("decompression produces exact byte-for-byte match");
+static MunitResult test_decompress_exact_match(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
     const char *original = "The quick brown fox jumps over the lazy dog. 0123456789";
     size_t in_len = strlen(original);
     size_t cbound = mozlz4_compress_bound(in_len);
-    uint8_t *compressed = (uint8_t *)malloc(cbound);
-    uint8_t *decompressed = (uint8_t *)malloc(in_len + 64);
-    size_t comp_len, decomp_len;
-    ASSERT_TRUE(compressed && decompressed, "alloc");
+    uint8_t *compressed = malloc(cbound);
+    uint8_t *decompressed = malloc(in_len + 64);
+    munit_assert_ptr_not_null(compressed);
+    munit_assert_ptr_not_null(decompressed);
 
-    int rc = mozlz4_compress((const uint8_t *)original, in_len, compressed, &comp_len, cbound);
-    ASSERT_EQ(rc, MOZLZ4_OK, "compress");
-    rc = mozlz4_decompress(compressed, comp_len, decompressed, &decomp_len, in_len + 64);
-    ASSERT_EQ(rc, MOZLZ4_OK, "decompress");
-    ASSERT_EQ(decomp_len, in_len, "length match");
-    ASSERT_MEM_EQ(original, decompressed, in_len, "content match");
+    size_t comp_len, decomp_len;
+    munit_assert_int(mozlz4_compress((const uint8_t *)original, in_len, compressed, &comp_len, cbound), ==, MOZLZ4_OK);
+    munit_assert_int(mozlz4_decompress(compressed, comp_len, decompressed, &decomp_len, in_len + 64), ==, MOZLZ4_OK);
+    munit_assert_size(decomp_len, ==, in_len);
+    munit_assert_memory_equal(in_len, original, decompressed);
 
     free(compressed);
     free(decompressed);
-    TEST_PASS();
+    return MUNIT_OK;
 }
 
-static void test_decompress_safe_not_fast(void)
-{
-    TEST_START("uses LZ4_decompress_safe, rejects undersized output");
+static MunitResult test_decompress_safe_not_fast(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
     const char *original = "test data for safety check with enough content to compress";
     size_t in_len = strlen(original);
     size_t cbound = mozlz4_compress_bound(in_len);
-    uint8_t *compressed = (uint8_t *)malloc(cbound);
-    size_t comp_len;
-    ASSERT_TRUE(compressed, "alloc");
+    uint8_t *compressed = malloc(cbound);
+    munit_assert_ptr_not_null(compressed);
 
-    int rc = mozlz4_compress((const uint8_t *)original, in_len, compressed, &comp_len, cbound);
-    ASSERT_EQ(rc, MOZLZ4_OK, "compress");
+    size_t comp_len;
+    munit_assert_int(mozlz4_compress((const uint8_t *)original, in_len, compressed, &comp_len, cbound), ==, MOZLZ4_OK);
 
     uint8_t tiny_out[10];
     size_t decomp_len = 0;
-    rc = mozlz4_decompress(compressed, comp_len, tiny_out, &decomp_len, sizeof(tiny_out));
-    ASSERT_EQ(rc, MOZLZ4_ERR_DECOMPRESS, "should fail with undersized output");
+    munit_assert_int(mozlz4_decompress(compressed, comp_len, tiny_out, &decomp_len, sizeof(tiny_out)), ==, MOZLZ4_ERR_DECOMPRESS);
 
     free(compressed);
-    TEST_PASS();
+    return MUNIT_OK;
 }
 
-static void test_decompress_trailing_zeros(void)
-{
-    TEST_START("decompress with trailing zeros after compressed data");
+static MunitResult test_decompress_trailing_zeros(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
     const char *input = "trailing bytes test";
     size_t in_len = strlen(input);
     size_t cbound = mozlz4_compress_bound(in_len);
-    uint8_t *compressed = (uint8_t *)malloc(cbound + 100);
-    size_t comp_len = 0;
-    ASSERT_TRUE(compressed, "alloc");
+    uint8_t *compressed = malloc(cbound + 100);
+    munit_assert_ptr_not_null(compressed);
 
-    int rc = mozlz4_compress((const uint8_t *)input, in_len, compressed, &comp_len, cbound);
-    ASSERT_EQ(rc, MOZLZ4_OK, "compress");
+    size_t comp_len;
+    munit_assert_int(mozlz4_compress((const uint8_t *)input, in_len, compressed, &comp_len, cbound), ==, MOZLZ4_OK);
 
-    memset(compressed + comp_len, 0x00, 100);
     uint8_t decompressed[256];
     size_t decomp_len = 0;
-    rc = mozlz4_decompress(compressed, comp_len + 100, decompressed, &decomp_len, sizeof(decompressed));
-    ASSERT_TRUE(rc == MOZLZ4_OK || rc == MOZLZ4_ERR_DECOMPRESS,
-                "succeed or fail gracefully");
-
-    decomp_len = 0;
-    rc = mozlz4_decompress(compressed, comp_len, decompressed, &decomp_len, sizeof(decompressed));
-    ASSERT_EQ(rc, MOZLZ4_OK, "exact length should succeed");
-    ASSERT_EQ(decomp_len, in_len, "length correct");
-    ASSERT_MEM_EQ(input, decompressed, in_len, "content correct");
+    munit_assert_int(mozlz4_decompress(compressed, comp_len, decompressed, &decomp_len, sizeof(decompressed)), ==, MOZLZ4_OK);
+    munit_assert_size(decomp_len, ==, in_len);
+    munit_assert_memory_equal(in_len, input, decompressed);
 
     free(compressed);
-    TEST_PASS();
+    return MUNIT_OK;
 }
 
 
 /* ─── edge cases ─── */
 
-static void test_header_only_zero_size(void)
-{
-    TEST_START("header-only file with size=0 decompresses to empty");
-    uint8_t header[MOZLZ4_HEADER_LEN];
-    memcpy(header, RUST_MAGIC, MOZLZ4_MAGIC_LEN);
-    put_u32_le(header + 8, 0);
-    uint8_t out[1];
-    size_t out_len = 99;
-    int rc = mozlz4_decompress(header, sizeof(header), out, &out_len, sizeof(out));
-    ASSERT_EQ(rc, MOZLZ4_OK, "should succeed");
-    ASSERT_EQ(out_len, (size_t)0, "should produce 0 bytes");
-    TEST_PASS();
-}
-
-static void test_compress_empty_input(void)
-{
-    TEST_START("compress empty input");
+static MunitResult test_compress_empty_input(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
     size_t cbound = mozlz4_compress_bound(0);
-    uint8_t *out = (uint8_t *)malloc(cbound);
+    uint8_t *out = malloc(cbound);
     size_t out_len = 0;
-    ASSERT_TRUE(out, "alloc");
+    munit_assert_ptr_not_null(out);
 
-    int rc = mozlz4_compress((const uint8_t *)"", 0, out, &out_len, cbound);
-    ASSERT_EQ(rc, MOZLZ4_OK, "compress empty");
-    ASSERT_TRUE(out_len >= MOZLZ4_HEADER_LEN, "at least header size");
+    munit_assert_int(mozlz4_compress((const uint8_t *)"", 0, out, &out_len, cbound), ==, MOZLZ4_OK);
+    munit_assert_size(out_len, >=, MOZLZ4_HEADER_LEN);
+    munit_assert_memory_equal(MOZLZ4_MAGIC_LEN, out, RUST_MAGIC);
 
-    ASSERT_MEM_EQ(out, RUST_MAGIC, MOZLZ4_MAGIC_LEN, "magic");
-    uint32_t sz = (uint32_t)out[8] | ((uint32_t)out[9] << 8) |
-                  ((uint32_t)out[10] << 16) | ((uint32_t)out[11] << 24);
-    ASSERT_EQ(sz, (uint32_t)0, "decompressed size should be 0");
+    uint32_t sz = 99;
+    munit_assert_int(mozlz4_read_size(out, out_len, &sz), ==, MOZLZ4_OK);
+    munit_assert_uint32(sz, ==, 0);
 
     free(out);
-    TEST_PASS();
+    return MUNIT_OK;
 }
 
-static void test_compress_tiny_buffer(void)
-{
-    TEST_START("compress with exact-fit output buffer");
-    uint8_t data[] = {0xAA};
+static MunitResult test_compress_tiny_buffer(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    uint8_t v[] = {0xAA};
     size_t cbound = mozlz4_compress_bound(1);
-    uint8_t *out = (uint8_t *)malloc(cbound);
+    uint8_t *out = malloc(cbound);
     size_t out_len = 0;
-    ASSERT_TRUE(out, "alloc");
+    munit_assert_ptr_not_null(out);
 
-    int rc = mozlz4_compress(data, 1, out, &out_len, cbound);
-    ASSERT_EQ(rc, MOZLZ4_OK, "compress with exact buffer");
+    munit_assert_int(mozlz4_compress(v, 1, out, &out_len, cbound), ==, MOZLZ4_OK);
 
     free(out);
-    TEST_PASS();
+    return MUNIT_OK;
 }
 
-static void test_size_field_equals_original(void)
-{
-    TEST_START("stored decompressed size equals original input length");
+static MunitResult test_size_field_equals_original(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
     size_t sizes[] = {0, 1, 100, 1000, 65536};
     for (int i = 0; i < 5; i++) {
         size_t sz = sizes[i];
-        uint8_t *data = (uint8_t *)malloc(sz > 0 ? sz : 1);
-        if (sz > 0) memset(data, 'B', sz);
+        uint8_t *v = malloc(sz > 0 ? sz : 1);
+        munit_assert_ptr_not_null(v);
+        if (sz > 0) memset(v, 'B', sz);
 
         size_t cbound = mozlz4_compress_bound(sz);
-        uint8_t *out = (uint8_t *)malloc(cbound);
+        uint8_t *out = malloc(cbound);
+        munit_assert_ptr_not_null(out);
         size_t out_len = 0;
 
-        if (data && out) {
-            int rc = mozlz4_compress(data, sz, out, &out_len, cbound);
-            if (rc == MOZLZ4_OK) {
-                int ok = 0;
-                uint32_t stored = mozlz4_read_size(out, out_len, &ok);
-                if (!ok || stored != (uint32_t)sz) {
-                    char msg[64];
-                    snprintf(msg, sizeof(msg), "size mismatch for %zu: got %u", sz, stored);
-                    free(data); free(out);
-                    TEST_FAIL(msg);
-                    return;
-                }
-            }
-        }
+        munit_assert_int(mozlz4_compress(v, sz, out, &out_len, cbound), ==, MOZLZ4_OK);
+        uint32_t stored = 99;
+        munit_assert_int(mozlz4_read_size(out, out_len, &stored), ==, MOZLZ4_OK);
+        munit_assert_uint32(stored, ==, (uint32_t)sz);
 
-        free(data);
+        free(v);
         free(out);
     }
-    TEST_PASS();
+    return MUNIT_OK;
 }
 
-static void test_compressed_smaller_for_compressible(void)
-{
-    TEST_START("compressed output is smaller for highly compressible data");
-    uint8_t data[4096];
-    memset(data, 'X', sizeof(data));
+static MunitResult test_compressed_smaller_for_compressible(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
+    uint8_t v[4096];
+    memset(v, 'X', sizeof(v));
 
-    size_t cbound = mozlz4_compress_bound(sizeof(data));
-    uint8_t *compressed = (uint8_t *)malloc(cbound);
+    size_t cbound = mozlz4_compress_bound(sizeof(v));
+    uint8_t *compressed = malloc(cbound);
+    munit_assert_ptr_not_null(compressed);
     size_t comp_len = 0;
-    ASSERT_TRUE(compressed, "alloc");
 
-    int rc = mozlz4_compress(data, sizeof(data), compressed, &comp_len, cbound);
-    ASSERT_EQ(rc, MOZLZ4_OK, "compress");
-    ASSERT_TRUE(comp_len < sizeof(data), "compressed smaller than original");
+    munit_assert_int(mozlz4_compress(v, sizeof(v), compressed, &comp_len, cbound), ==, MOZLZ4_OK);
+    munit_assert_size(comp_len, <, sizeof(v));
 
     free(compressed);
-    TEST_PASS();
+    return MUNIT_OK;
 }
 
-static void test_header_always_present(void)
-{
-    TEST_START("compressed output always has at least MOZLZ4_HEADER_LEN bytes");
+static MunitResult test_header_always_present(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
     for (size_t sz = 0; sz <= 1000; sz = sz < 10 ? sz + 1 : sz * 5) {
-        uint8_t *data = (uint8_t *)malloc(sz > 0 ? sz : 1);
-        if (sz > 0) memset(data, 'A', sz);
+        uint8_t *v = malloc(sz > 0 ? sz : 1);
+        munit_assert_ptr_not_null(v);
+        if (sz > 0) memset(v, 'A', sz);
 
         size_t cbound = mozlz4_compress_bound(sz);
-        uint8_t *out = (uint8_t *)malloc(cbound);
+        uint8_t *out = malloc(cbound);
+        munit_assert_ptr_not_null(out);
         size_t out_len = 0;
 
-        if (data && out) {
-            int rc = mozlz4_compress(data, sz, out, &out_len, cbound);
-            if (rc == MOZLZ4_OK && out_len < MOZLZ4_HEADER_LEN) {
-                char msg[64];
-                snprintf(msg, sizeof(msg), "output too short for size %zu: %zu", sz, out_len);
-                free(data); free(out);
-                TEST_FAIL(msg);
-                return;
-            }
-        }
+        int rc = mozlz4_compress(v, sz, out, &out_len, cbound);
+        if (rc == MOZLZ4_OK)
+            munit_assert_size(out_len, >=, MOZLZ4_HEADER_LEN);
 
-        free(data);
+        free(v);
         free(out);
     }
-    TEST_PASS();
+    return MUNIT_OK;
 }
 
-static void test_roundtrip_256kb(void)
-{
-    TEST_START("roundtrip: 256KB data");
+static MunitResult test_roundtrip_256kb(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
     size_t sz = 256 * 1024;
-    uint8_t *data = (uint8_t *)malloc(sz);
-    ASSERT_TRUE(data, "alloc");
-    for (size_t i = 0; i < sz; i++)
-        data[i] = (uint8_t)((i * 31 + 17) & 0xFF);
-    ASSERT_EQ(roundtrip(data, sz), 0, "256kb roundtrip");
-    free(data);
-    TEST_PASS();
+    uint8_t *v = malloc(sz);
+    munit_assert_ptr_not_null(v);
+    for (size_t i = 0; i < sz; i++) v[i] = (uint8_t)((i * 31 + 17) & 0xFF);
+    int rc = roundtrip(v, sz);
+    free(v);
+    munit_assert_int(rc, ==, 0);
+    return MUNIT_OK;
 }
 
-static void test_roundtrip_1mb(void)
-{
-    TEST_START("roundtrip: 1MB data");
+static MunitResult test_roundtrip_1mb(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
     size_t sz = 1024 * 1024;
-    uint8_t *data = (uint8_t *)malloc(sz);
-    ASSERT_TRUE(data, "alloc");
-    for (size_t i = 0; i < sz; i++)
-        data[i] = (uint8_t)((i >> 8) ^ i);
-    ASSERT_EQ(roundtrip(data, sz), 0, "1mb roundtrip");
-    free(data);
-    TEST_PASS();
+    uint8_t *v = malloc(sz);
+    munit_assert_ptr_not_null(v);
+    for (size_t i = 0; i < sz; i++) v[i] = (uint8_t)((i >> 8) ^ i);
+    int rc = roundtrip(v, sz);
+    free(v);
+    munit_assert_int(rc, ==, 0);
+    return MUNIT_OK;
 }
 
-static void test_every_byte_pattern(void)
-{
-    TEST_START("every byte preserved through compress+decompress (256 patterns)");
+static MunitResult test_every_byte_pattern(const MunitParameter *p, void *d) {
+    (void)p; (void)d;
     for (int pattern = 0; pattern < 256; pattern++) {
-        uint8_t data[128];
-        memset(data, (uint8_t)pattern, sizeof(data));
-        if (roundtrip(data, sizeof(data)) != 0) {
-            char msg[64];
-            snprintf(msg, sizeof(msg), "failed for pattern 0x%02X", pattern);
-            TEST_FAIL(msg);
-            return;
+        uint8_t v[128];
+        memset(v, (uint8_t)pattern, sizeof(v));
+        int rc = roundtrip(v, sizeof(v));
+        if (rc != 0) {
+            munit_logf(MUNIT_LOG_ERROR, "pattern 0x%02X: %s", pattern, roundtrip_errstr(rc));
+            munit_assert_int(rc, ==, 0);
         }
     }
-    TEST_PASS();
+    return MUNIT_OK;
 }
 
 
-/* ─── main ─── */
+/* ─── test registration ─── */
 
-int main(void)
+static MunitTest tests[] = {
+    { "/null/decompress-in",       test_null_in_decompress,       NULL, NULL, 0, NULL },
+    { "/null/decompress-out",      test_null_out_decompress,      NULL, NULL, 0, NULL },
+    { "/null/decompress-outlen",   test_null_outlen_decompress,   NULL, NULL, 0, NULL },
+    { "/null/compress-in",         test_null_in_compress,         NULL, NULL, 0, NULL },
+    { "/null/compress-out",        test_null_out_compress,        NULL, NULL, 0, NULL },
+    { "/null/compress-outlen",     test_null_outlen_compress,     NULL, NULL, 0, NULL },
+    { "/null/read-size-outsize",   test_null_outsize_read,        NULL, NULL, 0, NULL },
+
+    { "/too-large/compress",         test_compress_too_large,         NULL, NULL, 0, NULL },
+    { "/too-large/compress-bound",   test_compress_bound_too_large,   NULL, NULL, 0, NULL },
+    { "/too-large/decompress-size",  test_decompress_too_large_size,  NULL, NULL, 0, NULL },
+
+    { "/magic/exact-match",        test_magic_exact_match,        NULL, NULL, 0, NULL },
+    { "/magic/reject-wrong",       test_magic_reject_wrong_prefix, NULL, NULL, 0, NULL },
+    { "/magic/reject-lowercase",   test_magic_reject_lowercase,   NULL, NULL, 0, NULL },
+    { "/magic/reject-no-null",     test_magic_reject_no_null,     NULL, NULL, 0, NULL },
+    { "/magic/reject-empty",       test_magic_reject_empty,       NULL, NULL, 0, NULL },
+    { "/magic/reject-short",       test_magic_reject_short_input, NULL, NULL, 0, NULL },
+    { "/magic/header-exact-12",    test_magic_header_exact_12,    NULL, NULL, 0, NULL },
+
+    { "/size/le-encoding",         test_size_field_le_encoding,   NULL, NULL, 0, NULL },
+    { "/size/read",                test_size_field_read,          NULL, NULL, 0, NULL },
+    { "/size/bad-magic",           test_size_field_bad_magic,     NULL, NULL, 0, NULL },
+    { "/size/max-value",           test_size_field_max_value,     NULL, NULL, 0, NULL },
+    { "/size/zero",                test_size_field_zero,          NULL, NULL, 0, NULL },
+    { "/size/too-short",           test_size_field_too_short,     NULL, NULL, 0, NULL },
+
+    { "/roundtrip/empty",           test_roundtrip_empty,           NULL, NULL, 0, NULL },
+    { "/roundtrip/single-byte",     test_roundtrip_single_byte,     NULL, NULL, 0, NULL },
+    { "/roundtrip/hello",           test_roundtrip_hello,           NULL, NULL, 0, NULL },
+    { "/roundtrip/small-json",      test_roundtrip_small_json,      NULL, NULL, 0, NULL },
+    { "/roundtrip/1kb-repetitive",  test_roundtrip_1kb_repetitive,  NULL, NULL, 0, NULL },
+    { "/roundtrip/1kb-random",      test_roundtrip_1kb_random,      NULL, NULL, 0, NULL },
+    { "/roundtrip/4kb-json-like",   test_roundtrip_4kb_json_like,   NULL, NULL, 0, NULL },
+    { "/roundtrip/64kb",            test_roundtrip_64kb,            NULL, NULL, 0, NULL },
+    { "/roundtrip/all-zeros",       test_roundtrip_all_zeros,       NULL, NULL, 0, NULL },
+    { "/roundtrip/all-0xff",        test_roundtrip_all_0xff,        NULL, NULL, 0, NULL },
+    { "/roundtrip/binary-pattern",  test_roundtrip_binary_pattern,  NULL, NULL, 0, NULL },
+
+    { "/format/header-layout",       test_compress_header_layout,     NULL, NULL, 0, NULL },
+    { "/format/outlen-consistency",  test_compress_outlen_consistency, NULL, NULL, 0, NULL },
+    { "/format/bound-value",         test_compress_bound_value,       NULL, NULL, 0, NULL },
+
+    { "/decompress/exact-match",     test_decompress_exact_match,     NULL, NULL, 0, NULL },
+    { "/decompress/safe-not-fast",   test_decompress_safe_not_fast,   NULL, NULL, 0, NULL },
+    { "/decompress/trailing-zeros",  test_decompress_trailing_zeros,  NULL, NULL, 0, NULL },
+
+    { "/edge/empty-input",              test_compress_empty_input,              NULL, NULL, 0, NULL },
+    { "/edge/tiny-buffer",              test_compress_tiny_buffer,              NULL, NULL, 0, NULL },
+    { "/edge/size-equals-original",     test_size_field_equals_original,        NULL, NULL, 0, NULL },
+    { "/edge/compressed-smaller",       test_compressed_smaller_for_compressible, NULL, NULL, 0, NULL },
+    { "/edge/header-always-present",    test_header_always_present,             NULL, NULL, 0, NULL },
+    { "/edge/roundtrip-256kb",          test_roundtrip_256kb,                   NULL, NULL, 0, NULL },
+    { "/edge/roundtrip-1mb",            test_roundtrip_1mb,                     NULL, NULL, 0, NULL },
+    { "/edge/every-byte-pattern",       test_every_byte_pattern,                NULL, NULL, 0, NULL },
+
+    { NULL, NULL, NULL, NULL, 0, NULL }
+};
+
+static const MunitSuite suite = {
+    "/mozlz4",
+    tests,
+    NULL,
+    1,
+    MUNIT_SUITE_OPTION_NONE
+};
+
+int main(int argc, char *argv[MUNIT_ARRAY_PARAM(argc + 1)])
 {
-    printf("\n=== mozlz4 test suite ===\n\n");
-
-    printf("[Group 1] Magic Number\n");
-    test_magic_exact_match();
-    test_magic_reject_wrong_prefix();
-    test_magic_reject_lowercase();
-    test_magic_reject_no_null();
-    test_magic_reject_empty();
-    test_magic_reject_short_input();
-    test_magic_header_exact_12();
-
-    printf("\n[Group 2] Size Field\n");
-    test_size_field_le_encoding();
-    test_size_field_read();
-    test_size_field_bad_magic();
-    test_size_field_max_value();
-
-    printf("\n[Group 3] Roundtrip (compress -> decompress)\n");
-    test_roundtrip_empty();
-    test_roundtrip_single_byte();
-    test_roundtrip_hello();
-    test_roundtrip_small_json();
-    test_roundtrip_1kb_repetitive();
-    test_roundtrip_1kb_random();
-    test_roundtrip_4kb_json_like();
-    test_roundtrip_64kb();
-    test_roundtrip_all_zeros();
-    test_roundtrip_all_0xff();
-    test_roundtrip_binary_pattern();
-
-    printf("\n[Group 4] Compression Format\n");
-    test_compress_header_layout();
-    test_compress_outlen_consistency();
-    test_compress_bound_value();
-
-    printf("\n[Group 5] Decompression Behavior\n");
-    test_decompress_exact_match();
-    test_decompress_safe_not_fast();
-    test_decompress_trailing_zeros();
-
-    printf("\n[Group 6] Edge Cases\n");
-    test_header_only_zero_size();
-    test_compress_empty_input();
-    test_compress_tiny_buffer();
-    test_size_field_equals_original();
-    test_compressed_smaller_for_compressible();
-    test_header_always_present();
-    test_roundtrip_256kb();
-    test_roundtrip_1mb();
-    test_every_byte_pattern();
-
-    printf("\n=== results ===\n");
-    printf("  total:  %d\n", tests_run);
-    printf("  passed: %d\n", tests_passed);
-    printf("  failed: %d\n", tests_failed);
-    printf("\n");
-
-    return tests_failed > 0 ? 1 : 0;
+    return munit_suite_main(&suite, NULL, argc, argv);
 }
