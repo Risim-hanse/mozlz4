@@ -159,7 +159,7 @@ MOZLZ4_API int mozlz4_read_size(const uint8_t *in, size_t in_len,
 {
     int magic_rc;
 
-    if (!out_size)
+    if (!in || !out_size)
         return MOZLZ4_ERR_NULL;
 
     magic_rc = check_magic(in, in_len);
