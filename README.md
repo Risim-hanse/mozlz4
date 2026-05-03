@@ -1,90 +1,115 @@
-# mozlz4: Mozilla LZ4 container format in C
+# mozlz4
 
-Compress and decompress Firefox `search.json.mozlz4` files.
+a small C tool for compressing and decompressing Firefox's `search.json.mozlz4` files.
 
-## Building locally
+## wait, what's a mozlz4?
+
+so Firefox stores your search engines (Google, DuckDuckGo, that one custom one you made) in a file called `search.json.mozlz4` inside your profile folder. it's just JSON, but Mozilla wrapped it in a custom LZ4 container with an 8-byte magic header. why? honestly... not sure. the file is tiny anyway. but that's how it works, and if you want to edit those search engines by hand, you need a tool to unpack and repack it.
+
+the format is simple:
 
 ```
+[8 bytes: "mozLz40\0"][4 bytes: decompressed size, little-endian][LZ4 compressed data]
+```
+
+that's it. 12 bytes of header, then a stock LZ4 block.
+
+## usage
+
+```bash
+# decompress (default)
+./mozlz4 search.json.mozlz4 search.json
+
+# compress back
+./mozlz4 -z search.json search.json.mozlz4
+
+# read from stdin, write to stdout
+cat search.json.mozlz4 | ./mozlz4 -x - | jq .
+```
+
+flags:
+- `-x, --extract` — decompress (this is the default)
+- `-z, --compress` — compress
+- `-h, --help` — you know what this does
+
+use `-` for stdin on input or stdout on output.
+
+## building
+
+```bash
 make          # builds mozlz4 + test_mozlz4
-make test     # builds and runs tests
-make clean    # removes build artifacts
+make test     # builds and runs the test suite
+make clean    # cleans up
 ```
 
-Works on Linux, macOS, and MSYS2/MinGW on Windows. Requires `gcc`.
+needs `gcc`. works on Linux, macOS, and Windows (via MSYS2/MinGW).
 
-## CI / Pre-built binaries
+## pre-built binaries
 
-Push a tag to trigger builds for all platforms:
+push a tag and the CI builds everything:
 
 ```bash
 git tag v1.0.0
 git push origin v1.0.0
 ```
 
-This produces binaries for:
+you'll get:
 - **Linux x86_64** — `.tar.gz`
 - **Windows x86_64** — `.zip`
 - **macOS x86_64** — `.tar.gz`
 - **macOS arm64** — `.tar.gz`
 
-Binaries appear as release artifacts. The workflow uses MSYS2 UCRT64 on Windows,
-plain gcc on Linux, and Apple clang on macOS. All use `-O2`, no `-march=native`.
-
-## Usage
-
-```
-./mozlz4 -x input.mozlz4 [output]     decompress (default)
-./mozlz4 -z input [output.mozlz4]     compress
-./mozlz4 -x - [output]                decompress from stdin
-./mozlz4 -z input -                   compress to stdout
-```
-
-## File Format
-
-```
-Offset  Size  Description
-0       8     Magic: "mozLz40\0"
-8       4     Decompressed size (uint32, little-endian)
-12      N     LZ4 compressed block
-```
+all built with `-O2`, no `-march=native`, so they'll run basically anywhere.
 
 ## API
+
+if you want to use this as a library, the header is `src/mozlz4.h`:
 
 ```c
 #include "mozlz4.h"
 
+// decompress a mozlz4 buffer
 int mozlz4_decompress(const uint8_t *in, size_t in_len,
                       uint8_t *out, size_t *out_len, size_t out_capacity);
 
+// compress a buffer into mozlz4 format
 int mozlz4_compress(const uint8_t *in, size_t in_len,
                     uint8_t *out, size_t *out_len, size_t out_capacity);
 
+// how big does the output buffer need to be?
 size_t mozlz4_compress_bound(size_t input_size);
+
+// just read the decompressed size without touching the data
 uint32_t mozlz4_read_size(const uint8_t *in, size_t in_len, int *ok);
 ```
 
-Returns `MOZLZ4_OK` on success, negative error code on failure.
+returns `MOZLZ4_OK` on success, negative error code on failure. the error codes are in the header.
 
-## Project Structure
+## project structure
 
 ```
-├── Makefile
-├── README.md
 ├── src/
-│   ├── mozlz4.h          # Public API
-│   ├── mozlz4.c          # Format implementation
-│   └── mozlz4_cli.c      # CLI tool
+│   ├── mozlz4.h          public API
+│   ├── mozlz4.c          format implementation
+│   └── mozlz4_cli.c      CLI tool
 ├── lz4/
-│   ├── lz4.h             # LZ4 v1.9.3 (from Mozilla gecko-dev)
-│   └── lz4.c             # LZ4 v1.9.3 (from Mozilla gecko-dev)
-└── test/
-    └── test_mozlz4.c     # Test suite
+│   ├── lz4.h             LZ4 v1.9.3 (vendored from Mozilla's gecko-dev)
+│   └── lz4.c
+├── test/
+│   └── test_mozlz4.c     test suite (37 tests)
+├── Makefile
+└── .github/workflows/
+    └── build.yml          CI for Linux, Windows, macOS
 ```
 
-## Dependencies
+## why C and not Rust?
 
-None. LZ4 is included (stock v1.9.3 from Mozilla's gecko-dev).
+there's a Rust crate (`jusw85/mozlz4`) that does the same thing. the catch is that the actual compression work is done by LZ4, which is a C library. the Rust version was mostly a wrapper around the same C code, just with a Rust build system on top. this version cuts out the middle layer. same behavior, fewer moving parts, compiles with a single `gcc` call.
 
-## License
+## dependencies
 
-LZ4 is BSD-2-Clause by Yann Collet. The mozlz4 wrapper code is public domain.
+none. LZ4 v1.9.3 is vendored in `lz4/`, pulled from Mozilla's gecko-dev tree.
+
+## license
+
+LZ4 is BSD-2-Clause by Yann Collet. the mozlz4 wrapper code is public domain.
