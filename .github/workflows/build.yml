@@ -1,0 +1,145 @@
+name: Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          CFLAGS="-O2 -Wall -Wextra -Ilz4 -Isrc -fno-math-errno -fno-stack-protector -fomit-frame-pointer -ffunction-sections -fdata-sections"
+          LDFLAGS="-s -Wl,--gc-sections -Wl,-z,norelro"
+
+          gcc $CFLAGS -o mozlz4 src/mozlz4_cli.c src/mozlz4.c lz4/lz4.c $LDFLAGS
+          gcc $CFLAGS -o test_mozlz4 test/test_mozlz4.c src/mozlz4.c lz4/lz4.c $LDFLAGS
+
+      - name: Test
+        run: ./test_mozlz4
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: mozlz4-linux-x86_64
+          path: mozlz4
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: mingw-w64-ucrt-x86_64-gcc make
+
+      - name: Build
+        shell: msys2 {0}
+        run: |
+          CFLAGS="-O2 -Wall -Wextra -Ilz4 -Isrc -fno-math-errno -fno-stack-protector -fomit-frame-pointer -ffunction-sections -fdata-sections"
+          LDFLAGS="-s -Wl,--gc-sections"
+
+          gcc $CFLAGS -o mozlz4.exe src/mozlz4_cli.c src/mozlz4.c lz4/lz4.c $LDFLAGS
+          gcc $CFLAGS -o test_mozlz4.exe test/test_mozlz4.c src/mozlz4.c lz4/lz4.c $LDFLAGS
+
+      - name: Test
+        shell: msys2 {0}
+        run: ./test_mozlz4.exe
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: mozlz4-windows-x86_64
+          path: mozlz4.exe
+
+  build-macos-x86_64:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          CFLAGS="-O2 -Wall -Wextra -Ilz4 -Isrc -fno-math-errno -fomit-frame-pointer -ffunction-sections -fdata-sections -arch x86_64"
+          LDFLAGS="-dead_strip"
+
+          gcc $CFLAGS -o mozlz4 src/mozlz4_cli.c src/mozlz4.c lz4/lz4.c $LDFLAGS
+          gcc $CFLAGS -o test_mozlz4 test/test_mozlz4.c src/mozlz4.c lz4/lz4.c $LDFLAGS
+
+      - name: Test
+        run: ./test_mozlz4
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: mozlz4-macos-x86_64
+          path: mozlz4
+
+  build-macos-arm64:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          CFLAGS="-O2 -Wall -Wextra -Ilz4 -Isrc -fno-math-errno -fomit-frame-pointer -ffunction-sections -fdata-sections -arch arm64"
+          LDFLAGS="-dead_strip"
+
+          gcc $CFLAGS -o mozlz4 src/mozlz4_cli.c src/mozlz4.c lz4/lz4.c $LDFLAGS
+          gcc $CFLAGS -o test_mozlz4 test/test_mozlz4.c src/mozlz4.c lz4/lz4.c $LDFLAGS
+
+      - name: Test
+        run: ./test_mozlz4
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: mozlz4-macos-arm64
+          path: mozlz4
+
+  release:
+    needs: [build-linux, build-windows, build-macos-x86_64, build-macos-arm64]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          cd artifacts
+
+          # Linux
+          tar czf ../mozlz4-linux-x86_64.tar.gz -C mozlz4-linux-x86_64 mozlz4
+
+          # Windows
+          cd mozlz4-windows-x86_64
+          zip ../mozlz4-windows-x86_64.zip mozlz4.exe
+          cd ..
+
+          # macOS x86_64
+          tar czf ../mozlz4-macos-x86_64.tar.gz -C mozlz4-macos-x86_64 mozlz4
+
+          # macOS arm64
+          tar czf ../mozlz4-macos-arm64.tar.gz -C mozlz4-macos-arm64 mozlz4
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            mozlz4-linux-x86_64.tar.gz
+            mozlz4-windows-x86_64.zip
+            mozlz4-macos-x86_64.tar.gz
+            mozlz4-macos-arm64.tar.gz
+          generate_release_notes: true
