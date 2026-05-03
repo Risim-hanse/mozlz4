@@ -27,9 +27,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mozlz4-linux-x86_64
-          path: |
-            mozlz4
-            test_mozlz4
+          path: mozlz4
 
   build-windows:
     runs-on: windows-latest
@@ -60,9 +58,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mozlz4-windows-x86_64
-          path: |
-            mozlz4.exe
-            test_mozlz4.exe
+          path: mozlz4.exe
 
   build-macos-x86_64:
     runs-on: macos-13
@@ -84,9 +80,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mozlz4-macos-x86_64
-          path: |
-            mozlz4
-            test_mozlz4
+          path: mozlz4
 
   build-macos-arm64:
     runs-on: macos-14
@@ -108,9 +102,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mozlz4-macos-arm64
-          path: |
-            mozlz4
-            test_mozlz4
+          path: mozlz4
 
   release:
     needs: [build-linux, build-windows, build-macos-x86_64, build-macos-arm64]
@@ -129,18 +121,18 @@ jobs:
           cd artifacts
 
           # Linux
-          tar czf ../mozlz4-linux-x86_64.tar.gz -C mozlz4-linux-x86_64 mozlz4 test_mozlz4
+          tar czf ../mozlz4-linux-x86_64.tar.gz -C mozlz4-linux-x86_64 mozlz4
 
           # Windows
           cd mozlz4-windows-x86_64
-          zip ../mozlz4-windows-x86_64.zip mozlz4.exe test_mozlz4.exe
+          zip ../mozlz4-windows-x86_64.zip mozlz4.exe
           cd ..
 
           # macOS x86_64
-          tar czf ../mozlz4-macos-x86_64.tar.gz -C mozlz4-macos-x86_64 mozlz4 test_mozlz4
+          tar czf ../mozlz4-macos-x86_64.tar.gz -C mozlz4-macos-x86_64 mozlz4
 
           # macOS arm64
-          tar czf ../mozlz4-macos-arm64.tar.gz -C mozlz4-macos-arm64 mozlz4 test_mozlz4
+          tar czf ../mozlz4-macos-arm64.tar.gz -C mozlz4-macos-arm64 mozlz4
 
       - name: Create release
         uses: softprops/action-gh-release@v2
