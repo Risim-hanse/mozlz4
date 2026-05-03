@@ -1,4 +1,4 @@
-# mozlz4 — Mozilla LZ4 container format in C
+# mozlz4: Mozilla LZ4 container format in C
 
 Compress and decompress Firefox `search.json.mozlz4` files.
 
