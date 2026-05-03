@@ -142,4 +142,4 @@ none. LZ4 v1.9.3 is vendored in `lz4/`, pulled from Mozilla's gecko-dev tree.
 
 ## license
 
-LZ4 is BSD-2-Clause by Yann Collet. the mozlz4 wrapper code is public domain.
+LZ4 is BSD-2-Clause by Yann Collet. munit is MIT by Evan Nemerson. the mozlz4 wrapper code is public domain.
