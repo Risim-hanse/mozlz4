@@ -77,7 +77,7 @@ static const char *roundtrip_errstr(int rc)
 }
 
 
-/* ─── null arguments ─── */
+/* null arguments */
 
 static MunitResult test_null_in_decompress(const MunitParameter *p, void *d) {
     (void)p; (void)d;
@@ -131,7 +131,7 @@ static MunitResult test_null_outsize_read(const MunitParameter *p, void *d) {
 }
 
 
-/* ─── too-large inputs ─── */
+/* too-large inputs */
 
 static MunitResult test_compress_too_large(const MunitParameter *p, void *d) {
     (void)p; (void)d;
@@ -158,7 +158,7 @@ static MunitResult test_decompress_too_large_size(const MunitParameter *p, void 
 }
 
 
-/* ─── magic number ─── */
+/* magic number */
 
 static MunitResult test_magic_exact_match(const MunitParameter *p, void *d) {
     (void)p; (void)d;
@@ -218,7 +218,7 @@ static MunitResult test_magic_header_exact_12(const MunitParameter *p, void *d) 
 }
 
 
-/* ─── size field ─── */
+/* size field */
 
 static MunitResult test_size_field_le_encoding(const MunitParameter *p, void *d) {
     (void)p; (void)d;
@@ -284,7 +284,7 @@ static MunitResult test_size_field_too_short(const MunitParameter *p, void *d) {
 }
 
 
-/* ─── roundtrip ─── */
+/* roundtrip */
 
 static MunitResult test_roundtrip_empty(const MunitParameter *p, void *d) {
     (void)p; (void)d;
@@ -384,7 +384,7 @@ static MunitResult test_roundtrip_binary_pattern(const MunitParameter *p, void *
 }
 
 
-/* ─── compression format ─── */
+/* compression format */
 
 static MunitResult test_compress_header_layout(const MunitParameter *p, void *d) {
     (void)p; (void)d;
@@ -441,7 +441,7 @@ static MunitResult test_compress_bound_value(const MunitParameter *p, void *d) {
 }
 
 
-/* ─── decompression behavior ─── */
+/* decompression behavior */
 
 static MunitResult test_decompress_exact_match(const MunitParameter *p, void *d) {
     (void)p; (void)d;
@@ -505,7 +505,7 @@ static MunitResult test_decompress_trailing_zeros(const MunitParameter *p, void 
 }
 
 
-/* ─── edge cases ─── */
+/* edge cases */
 
 static MunitResult test_compress_empty_input(const MunitParameter *p, void *d) {
     (void)p; (void)d;
@@ -643,7 +643,7 @@ static MunitResult test_every_byte_pattern(const MunitParameter *p, void *d) {
 }
 
 
-/* ─── test registration ─── */
+/* test registration */
 
 static MunitTest tests[] = {
     { "/null/decompress-in",       test_null_in_decompress,       NULL, NULL, 0, NULL },
