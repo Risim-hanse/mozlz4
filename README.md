@@ -1,53 +1,90 @@
-# mozlz4
+# mozlz4: Mozilla LZ4 container format in C
 
-small C tool for packing and unpacking Firefox `search.json.mozlz4` files. no dependencies, just gcc and make~
+Compress and decompress Firefox `search.json.mozlz4` files.
 
-## okay so
+## Building locally
 
-Firefox keeps your search engines in this file called `search.json.mozlz4`. it's just JSON but they wrapped it in a little LZ4 container with a custom header. the format is honestly kinda cute, it's just twelve bytes of header ("mozLz40\0" plus a uint32 for decompressed size) and then a stock LZ4 block. that's it.
-
-if you ever want to edit your search engines by hand or peek at what Firefox has stored, you need something to unpack this. most existing tools are either Python scripts or that Rust crate which... is mostly just wrapping the C LZ4 library anyway. so here's a C version that talks to LZ4 directly.
-
-## usage
-
-```bash
-./mozlz4 search.json.mozlz4 search.json        # decompress
-./mozlz4 -z search.json search.json.mozlz4      # compress back
-cat search.json.mozlz4 | ./mozlz4 -x - | jq .   # pipe it
+```
+make          # builds mozlz4 + test_mozlz4
+make test     # builds and runs tests
+make clean    # removes build artifacts
 ```
 
-`-x` extracts (default), `-z` compresses. use `-` for stdin/stdout.
+Works on Linux, macOS, and MSYS2/MinGW on Windows. Requires `gcc`.
 
-## building
+## CI / Pre-built binaries
+
+Push a tag to trigger builds for all platforms:
 
 ```bash
-make && make test
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
-needs gcc. works on Linux, macOS, Windows (MSYS2).
+This produces binaries for:
+- **Linux x86_64** — `.tar.gz`
+- **Windows x86_64** — `.zip`
+- **macOS x86_64** — `.tar.gz`
+- **macOS arm64** — `.tar.gz`
 
-## releases
+Binaries appear as release artifacts. The workflow uses MSYS2 UCRT64 on Windows,
+plain gcc on Linux, and Apple clang on macOS. All use `-O2`, no `-march=native`.
 
-push a `v*` tag and CI builds everything for Linux, Windows, macOS (x86_64 + arm64). binaries show up as release artifacts~
+## Usage
+
+```
+./mozlz4 -x input.mozlz4 [output]     decompress (default)
+./mozlz4 -z input [output.mozlz4]     compress
+./mozlz4 -x - [output]                decompress from stdin
+./mozlz4 -z input -                   compress to stdout
+```
+
+## File Format
+
+```
+Offset  Size  Description
+0       8     Magic: "mozLz40\0"
+8       4     Decompressed size (uint32, little-endian)
+12      N     LZ4 compressed block
+```
 
 ## API
 
-`src/mozlz4.h` has the full API if you want to use it as a library. `MOZLZ4_OK` on success, negative error codes on failure. check the header, it's pretty short.
+```c
+#include "mozlz4.h"
 
-## layout
+int mozlz4_decompress(const uint8_t *in, size_t in_len,
+                      uint8_t *out, size_t *out_len, size_t out_capacity);
+
+int mozlz4_compress(const uint8_t *in, size_t in_len,
+                    uint8_t *out, size_t *out_len, size_t out_capacity);
+
+size_t mozlz4_compress_bound(size_t input_size);
+uint32_t mozlz4_read_size(const uint8_t *in, size_t in_len, int *ok);
+```
+
+Returns `MOZLZ4_OK` on success, negative error code on failure.
+
+## Project Structure
 
 ```
-src/mozlz4.h        the API
-src/mozlz4.c        format implementation
-src/mozlz4_cli.c    CLI tool
-lz4/                 LZ4 v1.9.3 vendored from Mozilla's gecko-dev
-test/test_mozlz4.c  37 tests
+├── Makefile
+├── README.md
+├── src/
+│   ├── mozlz4.h          # Public API
+│   ├── mozlz4.c          # Format implementation
+│   └── mozlz4_cli.c      # CLI tool
+├── lz4/
+│   ├── lz4.h             # LZ4 v1.9.3 (from Mozilla gecko-dev)
+│   └── lz4.c             # LZ4 v1.9.3 (from Mozilla gecko-dev)
+└── test/
+    └── test_mozlz4.c     # Test suite
 ```
 
-## why C
+## Dependencies
 
-the Rust crate (`jusw85/mozlz4`) is fine but it felt like wearing a coat indoors. LZ4 is C, the format is simple, the whole thing is like 500 lines. cargo and build.rs felt like overkill. this version is just... the thing itself. one gcc call and you're done~
+None. LZ4 is included (stock v1.9.3 from Mozilla's gecko-dev).
 
-## license
+## License
 
-mozlz4 wrapper is public domain. LZ4 is BSD-2-Clause by Yann Collet.
+LZ4 is BSD-2-Clause by Yann Collet. The mozlz4 wrapper code is public domain.
