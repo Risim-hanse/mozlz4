@@ -135,6 +135,11 @@ there's a Rust crate (`jusw85/mozlz4`) that does the same thing. the catch is th
 
 none. LZ4 v1.9.3 is vendored in `lz4/`, pulled from Mozilla's gecko-dev tree.
 
+## contributors
+
+- **Risim-hanse** -- original C implementation, build system, CI, fuzzing
+- **Lumine** -- code cleanup, comment style, README polish
+
 ## license
 
 LZ4 is BSD-2-Clause by Yann Collet. the mozlz4 wrapper code is public domain.
