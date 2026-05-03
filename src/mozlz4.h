@@ -1,9 +1,10 @@
 /*
  * mozlz4.h — Mozilla LZ4 container format (mozLz40)
  *
- * Format: [8-byte magic "mozLz40\0"][4-byte LE decompressed_size][LZ4 block data]
+ * the format is just LZ4 with a custom header:
+ *   [8 bytes magic "mozLz40\0"][4 bytes LE decompressed size][LZ4 block]
  *
- * This is a clean C implementation matching the Rust mozlz4 crate behavior.
+ * this is a clean C implementation matching the Rust mozlz4 crate behavior.
  */
 
 #ifndef MOZLZ4_H
@@ -16,72 +17,49 @@
 extern "C" {
 #endif
 
-/* Return codes */
+/* return codes */
 #define MOZLZ4_OK              0
-#define MOZLZ4_ERR_MAGIC      -1   /* Bad or missing magic number */
-#define MOZLZ4_ERR_TOO_SHORT  -2   /* Input shorter than header (12 bytes) */
+#define MOZLZ4_ERR_MAGIC      -1   /* bad or missing magic number */
+#define MOZLZ4_ERR_TOO_SHORT  -2   /* input shorter than header (12 bytes) */
 #define MOZLZ4_ERR_DECOMPRESS -3   /* LZ4 decompression failed */
 #define MOZLZ4_ERR_COMPRESS   -4   /* LZ4 compression failed */
 
-/* Magic number: "mozLz40\0" */
+/* magic: "mozLz40\0" — 8 bytes including the null terminator */
 #define MOZLZ4_MAGIC      "mozLz40"
-#define MOZLZ4_MAGIC_LEN  8   /* including the null terminator */
+#define MOZLZ4_MAGIC_LEN  8
 
-/* Header size: magic(8) + size_field(4) */
+/* header is magic (8) + size field (4) = 12 bytes total */
 #define MOZLZ4_HEADER_LEN  12
 
 /*
- * Decompress a mozlz4 buffer.
+ * decompress a mozlz4 buffer.
  *
- * Parameters:
- *   in           - Input buffer containing mozlz4 data
- *   in_len       - Length of input buffer in bytes
- *   out          - Output buffer (caller-allocated)
- *   out_len      - On success: actual decompressed size written
- *   out_capacity - Size of output buffer
- *
- * Returns:
- *   MOZLZ4_OK on success, negative error code on failure.
- *
- * Notes:
- *   - Input must be at least MOZLZ4_HEADER_LEN bytes
- *   - Magic number must be "mozLz40\0"
- *   - Output buffer must be at least as large as the decompressed_size field
+ * in must be at least MOZLZ4_HEADER_LEN bytes.
+ * out buffer must be >= the decompressed_size stored in the header.
+ * returns MOZLZ4_OK on success.
  */
 int mozlz4_decompress(const uint8_t *in, size_t in_len,
                       uint8_t *out, size_t *out_len, size_t out_capacity);
 
 /*
- * Compress a buffer into mozlz4 format.
+ * compress a buffer into mozlz4 format.
  *
- * Parameters:
- *   in           - Input (uncompressed) buffer
- *   in_len       - Length of input buffer in bytes
- *   out          - Output buffer (caller-allocated)
- *   out_len      - On success: actual compressed size written (header + data)
- *   out_capacity - Size of output buffer
- *
- * Returns:
- *   MOZLZ4_OK on success, negative error code on failure.
- *
- * Notes:
- *   - Output buffer should be at least MOZLZ4_HEADER_LEN + LZ4_compressBound(in_len)
- *   - Uses LZ4_compress_default (same as the Rust version)
+ * out buffer should be at least MOZLZ4_HEADER_LEN + LZ4_compressBound(in_len).
+ * returns MOZLZ4_OK on success.
  */
 int mozlz4_compress(const uint8_t *in, size_t in_len,
                     uint8_t *out, size_t *out_len, size_t out_capacity);
 
 /*
- * Get the maximum compressed size for a given input size.
- * Returns the total mozlz4 file size (header + worst-case LZ4 data).
- * Returns 0 if input_size is too large.
+ * max compressed size for a given input size (header + worst-case LZ4).
+ * returns 0 if input_size is too large.
  */
 size_t mozlz4_compress_bound(size_t input_size);
 
 /*
- * Read the decompressed size from a mozlz4 header without decompressing.
- * Returns 0 on error (bad magic / too short), otherwise the size value.
- * Note: size 0 is valid but also used as error — check *ok flag.
+ * read the decompressed size from a mozlz4 header without decompressing.
+ * returns 0 on error (bad magic / too short).
+ * note: size 0 is valid but also used as error, so check the *ok flag.
  */
 uint32_t mozlz4_read_size(const uint8_t *in, size_t in_len, int *ok);
 

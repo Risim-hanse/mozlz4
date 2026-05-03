@@ -14,17 +14,11 @@ jobs:
 
       - name: Build
         run: |
-          gcc -O2 -Wall -Wextra -Ilz4 -Isrc \
-              -fno-math-errno -fno-stack-protector -fomit-frame-pointer \
-              -ffunction-sections -fdata-sections \
-              -o mozlz4 src/mozlz4_cli.c src/mozlz4.c lz4/lz4.c \
-              -s -Wl,--gc-sections -Wl,-z,norelro
+          CFLAGS="-O2 -Wall -Wextra -Ilz4 -Isrc -fno-math-errno -fno-stack-protector -fomit-frame-pointer -ffunction-sections -fdata-sections"
+          LDFLAGS="-s -Wl,--gc-sections -Wl,-z,norelro"
 
-          gcc -O2 -Wall -Wextra -Ilz4 -Isrc \
-              -fno-math-errno -fno-stack-protector -fomit-frame-pointer \
-              -ffunction-sections -fdata-sections \
-              -o test_mozlz4 test/test_mozlz4.c src/mozlz4.c lz4/lz4.c \
-              -s -Wl,--gc-sections -Wl,-z,norelro
+          gcc $CFLAGS -o mozlz4 src/mozlz4_cli.c src/mozlz4.c lz4/lz4.c $LDFLAGS
+          gcc $CFLAGS -o test_mozlz4 test/test_mozlz4.c src/mozlz4.c lz4/lz4.c $LDFLAGS
 
       - name: Test
         run: ./test_mozlz4
@@ -52,17 +46,11 @@ jobs:
       - name: Build
         shell: msys2 {0}
         run: |
-          gcc -O2 -Wall -Wextra -Ilz4 -Isrc \
-              -fno-math-errno -fno-stack-protector -fomit-frame-pointer \
-              -ffunction-sections -fdata-sections \
-              -o mozlz4.exe src/mozlz4_cli.c src/mozlz4.c lz4/lz4.c \
-              -s -Wl,--gc-sections
+          CFLAGS="-O2 -Wall -Wextra -Ilz4 -Isrc -fno-math-errno -fno-stack-protector -fomit-frame-pointer -ffunction-sections -fdata-sections"
+          LDFLAGS="-s -Wl,--gc-sections"
 
-          gcc -O2 -Wall -Wextra -Ilz4 -Isrc \
-              -fno-math-errno -fno-stack-protector -fomit-frame-pointer \
-              -ffunction-sections -fdata-sections \
-              -o test_mozlz4.exe test/test_mozlz4.c src/mozlz4.c lz4/lz4.c \
-              -s -Wl,--gc-sections
+          gcc $CFLAGS -o mozlz4.exe src/mozlz4_cli.c src/mozlz4.c lz4/lz4.c $LDFLAGS
+          gcc $CFLAGS -o test_mozlz4.exe test/test_mozlz4.c src/mozlz4.c lz4/lz4.c $LDFLAGS
 
       - name: Test
         shell: msys2 {0}
@@ -83,19 +71,11 @@ jobs:
 
       - name: Build
         run: |
-          gcc -O2 -Wall -Wextra -Ilz4 -Isrc \
-              -fno-math-errno -fomit-frame-pointer \
-              -ffunction-sections -fdata-sections \
-              -arch x86_64 \
-              -o mozlz4 src/mozlz4_cli.c src/mozlz4.c lz4/lz4.c \
-              -dead_strip
+          CFLAGS="-O2 -Wall -Wextra -Ilz4 -Isrc -fno-math-errno -fomit-frame-pointer -ffunction-sections -fdata-sections -arch x86_64"
+          LDFLAGS="-dead_strip"
 
-          gcc -O2 -Wall -Wextra -Ilz4 -Isrc \
-              -fno-math-errno -fomit-frame-pointer \
-              -ffunction-sections -fdata-sections \
-              -arch x86_64 \
-              -o test_mozlz4 test/test_mozlz4.c src/mozlz4.c lz4/lz4.c \
-              -dead_strip
+          gcc $CFLAGS -o mozlz4 src/mozlz4_cli.c src/mozlz4.c lz4/lz4.c $LDFLAGS
+          gcc $CFLAGS -o test_mozlz4 test/test_mozlz4.c src/mozlz4.c lz4/lz4.c $LDFLAGS
 
       - name: Test
         run: ./test_mozlz4
@@ -115,19 +95,11 @@ jobs:
 
       - name: Build
         run: |
-          gcc -O2 -Wall -Wextra -Ilz4 -Isrc \
-              -fno-math-errno -fomit-frame-pointer \
-              -ffunction-sections -fdata-sections \
-              -arch arm64 \
-              -o mozlz4 src/mozlz4_cli.c src/mozlz4.c lz4/lz4.c \
-              -dead_strip
+          CFLAGS="-O2 -Wall -Wextra -Ilz4 -Isrc -fno-math-errno -fomit-frame-pointer -ffunction-sections -fdata-sections -arch arm64"
+          LDFLAGS="-dead_strip"
 
-          gcc -O2 -Wall -Wextra -Ilz4 -Isrc \
-              -fno-math-errno -fomit-frame-pointer \
-              -ffunction-sections -fdata-sections \
-              -arch arm64 \
-              -o test_mozlz4 test/test_mozlz4.c src/mozlz4.c lz4/lz4.c \
-              -dead_strip
+          gcc $CFLAGS -o mozlz4 src/mozlz4_cli.c src/mozlz4.c lz4/lz4.c $LDFLAGS
+          gcc $CFLAGS -o test_mozlz4 test/test_mozlz4.c src/mozlz4.c lz4/lz4.c $LDFLAGS
 
       - name: Test
         run: ./test_mozlz4

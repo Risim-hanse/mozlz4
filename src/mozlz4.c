@@ -1,7 +1,10 @@
 /*
  * mozlz4.c — Mozilla LZ4 container format implementation
  *
- * Behavior matches the Rust mozlz4 crate (jusw85/mozlz4) exactly.
+ * handles the "mozLz40\0" header + LZ4 block that Firefox uses
+ * for search.json.mozlz4 and similar files.
+ *
+ * behavior matches the Rust mozlz4 crate (jusw85/mozlz4) exactly.
  */
 
 #include "mozlz4.h"
@@ -9,12 +12,12 @@
 
 #include <string.h>
 
-/* The magic number as raw bytes: 'm','o','z','L','z','4','0','\0' */
+/* the magic bytes: 'm','o','z','L','z','4','0','\0' */
 static const uint8_t MOZLZ4_MAGIC_BYTES[MOZLZ4_MAGIC_LEN] = {
     'm', 'o', 'z', 'L', 'z', '4', '0', '\0'
 };
 
-/* Read a uint32 little-endian from a byte buffer */
+/* little-endian uint32 read/write — the header stores decompressed size in LE */
 static uint32_t read_u32_le(const uint8_t *p)
 {
     return (uint32_t)p[0]
@@ -23,7 +26,6 @@ static uint32_t read_u32_le(const uint8_t *p)
          | ((uint32_t)p[3] << 24);
 }
 
-/* Write a uint32 little-endian to a byte buffer */
 static void write_u32_le(uint8_t *p, uint32_t v)
 {
     p[0] = (uint8_t)(v);
@@ -43,32 +45,31 @@ int mozlz4_decompress(const uint8_t *in, size_t in_len,
     if (!in || !out || !out_len)
         return MOZLZ4_ERR_MAGIC;
 
-    /* Must be at least header length */
+    /* need at least the 12-byte header */
     if (in_len < MOZLZ4_HEADER_LEN)
         return MOZLZ4_ERR_TOO_SHORT;
 
-    /* Validate magic number */
+    /* check the magic number first, fastest rejection path */
     if (memcmp(in, MOZLZ4_MAGIC_BYTES, MOZLZ4_MAGIC_LEN) != 0)
         return MOZLZ4_ERR_MAGIC;
 
-    /* Read decompressed size from header */
+    /* pull the decompressed size from the header */
     decompressed_size = read_u32_le(in + MOZLZ4_MAGIC_LEN);
 
-    /* Check output buffer is large enough */
     if (out_capacity < decompressed_size)
         return MOZLZ4_ERR_DECOMPRESS;
 
-    /* LZ4 compressed block starts after header */
+    /* the LZ4 block starts right after the 12-byte header */
     block = in + MOZLZ4_HEADER_LEN;
     block_len = in_len - MOZLZ4_HEADER_LEN;
 
-    /* Handle edge case: header-only file with 0 decompressed size */
+    /* edge case: empty file (header says size 0, no actual data) */
     if (decompressed_size == 0) {
         *out_len = 0;
         return MOZLZ4_OK;
     }
 
-    /* Decompress */
+    /* LZ4_decompress_safe is the cautious one: it checks output bounds */
     bytes_decompressed = LZ4_decompress_safe(
         (const char *)block,
         (char *)out,
@@ -101,11 +102,11 @@ int mozlz4_compress(const uint8_t *in, size_t in_len,
     if (out_capacity < needed)
         return MOZLZ4_ERR_COMPRESS;
 
-    /* Write header */
+    /* write the header: magic + decompressed size */
     memcpy(out, MOZLZ4_MAGIC_BYTES, MOZLZ4_MAGIC_LEN);
     write_u32_le(out + MOZLZ4_MAGIC_LEN, (uint32_t)in_len);
 
-    /* Compress data into output buffer after header */
+    /* compress into the buffer right after the header */
     bytes_compressed = LZ4_compress_default(
         (const char *)in,
         (char *)(out + MOZLZ4_HEADER_LEN),

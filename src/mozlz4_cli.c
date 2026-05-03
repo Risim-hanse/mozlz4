@@ -1,14 +1,13 @@
 /*
- * mozlz4_cli.c — CLI tool for mozlz4 compress/decompress
+ * mozlz4_cli.c — CLI for mozlz4 compress/decompress
  *
- * Drop-in replacement for the Rust mozlz4-bin tool.
+ * drop-in replacement for the Rust mozlz4-bin tool.
  *
- * Usage:
- *   mozlz4 [-x] input [output]    decompress mozlz4 (default)
- *   mozlz4 -z input [output]      compress to mozlz4
+ * usage:
+ *   mozlz4 [-x] input [output]    decompress (default)
+ *   mozlz4 -z input [output]      compress
  *
- * Use '-' for stdin (input) or stdout (output).
- * Default output is stdout.
+ * use '-' for stdin (input) or stdout (output).
  */
 
 #include "mozlz4.h"
@@ -20,7 +19,7 @@
 static void usage(const char *prog)
 {
     fprintf(stderr,
-        "mozlz4 - Compress and decompress mozlz4 files (Firefox search.json)\n"
+        "mozlz4 - compress and decompress mozlz4 files (Firefox search.json)\n"
         "\n"
         "USAGE:\n"
         "  %s [-x] <input> [output]    decompress mozlz4 (default)\n"
@@ -36,6 +35,7 @@ static void usage(const char *prog)
         prog, prog);
 }
 
+/* read an entire file into a malloc'd buffer */
 static uint8_t *read_all(FILE *f, size_t *out_len)
 {
     size_t cap = 8192;
@@ -58,6 +58,7 @@ static uint8_t *read_all(FILE *f, size_t *out_len)
     return buf;
 }
 
+/* write all bytes to a file, retrying on partial writes */
 static int write_all(FILE *f, const uint8_t *data, size_t len)
 {
     while (len > 0) {
@@ -76,7 +77,7 @@ int main(int argc, char **argv)
     const char *output_path = "-";
     int argi = 1;
 
-    /* Parse flags */
+    /* parse flags */
     while (argi < argc && argv[argi][0] == '-') {
         if (strcmp(argv[argi], "-x") == 0 || strcmp(argv[argi], "--extract") == 0) {
             do_compress = 0;
@@ -103,7 +104,7 @@ int main(int argc, char **argv)
     if (argi < argc)
         output_path = argv[argi];
 
-    /* Read input */
+    /* read input */
     uint8_t *input_data;
     size_t input_len;
 
@@ -124,13 +125,13 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    /* Process */
+    /* decompress or compress */
     uint8_t *output_data = NULL;
     size_t output_len = 0;
     int rc;
 
     if (!do_compress) {
-        /* Decompress */
+        /* guess output size: 10x input or 64KB, whichever is bigger */
         size_t out_cap = input_len * 10 + 65536;
         if (out_cap < 65536) out_cap = 65536;
         output_data = (uint8_t *)malloc(out_cap);
@@ -143,8 +144,8 @@ int main(int argc, char **argv)
         rc = mozlz4_decompress(input_data, input_len, output_data, &output_len, out_cap);
         if (rc != MOZLZ4_OK) {
             const char *msg = "Unknown error";
-            if (rc == MOZLZ4_ERR_MAGIC)     msg = "Unrecognized input file";
-            if (rc == MOZLZ4_ERR_TOO_SHORT) msg = "Input too short";
+            if (rc == MOZLZ4_ERR_MAGIC)      msg = "Unrecognized input file";
+            if (rc == MOZLZ4_ERR_TOO_SHORT)  msg = "Input too short";
             if (rc == MOZLZ4_ERR_DECOMPRESS) msg = "Malformed input file";
             fprintf(stderr, "Error: %s\n", msg);
             free(input_data);
@@ -152,7 +153,6 @@ int main(int argc, char **argv)
             return 1;
         }
     } else {
-        /* Compress */
         size_t bound = mozlz4_compress_bound(input_len);
         output_data = (uint8_t *)malloc(bound);
         if (!output_data) {
@@ -172,7 +172,7 @@ int main(int argc, char **argv)
 
     free(input_data);
 
-    /* Write output */
+    /* write output */
     int write_rc;
     if (strcmp(output_path, "-") == 0) {
         write_rc = write_all(stdout, output_data, output_len);

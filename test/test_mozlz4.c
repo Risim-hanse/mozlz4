@@ -1,8 +1,11 @@
 /*
- * test_mozlz4.c — Test suite for mozlz4 format
+ * test_mozlz4.c — test suite for the mozlz4 format
  *
- * Build: make test
- * Run:   ./test_mozlz4
+ * build: make test
+ * run:   ./test_mozlz4
+ *
+ * 37 tests across 6 groups: magic number, size field, roundtrip,
+ * compression format, decompression behavior, and edge cases.
  */
 
 #include "mozlz4.h"
@@ -71,6 +74,7 @@ static uint8_t *build_mozlz4(const uint8_t *data, size_t data_len,
     return buf;
 }
 
+/* compress, decompress, verify the roundtrip preserves every byte */
 static int roundtrip(const uint8_t *data, size_t data_len)
 {
     size_t cbound = mozlz4_compress_bound(data_len);
@@ -103,11 +107,11 @@ static int roundtrip(const uint8_t *data, size_t data_len)
 }
 
 
-/* === Group 1: Magic Number === */
+/* ─── magic number ─── */
 
 static void test_magic_exact_match(void)
 {
-    TEST_START("Magic number is exactly 'mozLz40\\0' (8 bytes)");
+    TEST_START("magic is exactly 'mozLz40\\0' (8 bytes)");
     ASSERT_EQ(sizeof(RUST_MAGIC), (size_t)8, "magic should be 8 bytes");
     ASSERT_EQ(RUST_MAGIC[0], 'm', "byte 0");
     ASSERT_EQ(RUST_MAGIC[7], '\0', "byte 7 null terminator");
@@ -116,7 +120,7 @@ static void test_magic_exact_match(void)
 
 static void test_magic_reject_wrong_prefix(void)
 {
-    TEST_START("Reject wrong magic number");
+    TEST_START("reject wrong magic number");
     uint8_t bad[] = {'m','o','z','L','z','4','1','\0', 0,0,0,0, 0};
     size_t out_len;
     uint8_t out[64];
@@ -127,7 +131,7 @@ static void test_magic_reject_wrong_prefix(void)
 
 static void test_magic_reject_lowercase(void)
 {
-    TEST_START("Reject lowercase variant 'mozlz40\\0'");
+    TEST_START("reject lowercase variant 'mozlz40\\0'");
     uint8_t bad[] = {'m','o','z','l','z','4','0','\0', 0,0,0,0};
     size_t out_len;
     uint8_t out[64];
@@ -138,7 +142,7 @@ static void test_magic_reject_lowercase(void)
 
 static void test_magic_reject_no_null(void)
 {
-    TEST_START("Reject 'mozLz40X' (no null terminator)");
+    TEST_START("reject 'mozLz40X' (no null terminator)");
     uint8_t bad[] = {'m','o','z','L','z','4','0','X', 0,0,0,0};
     size_t out_len;
     uint8_t out[64];
@@ -149,7 +153,7 @@ static void test_magic_reject_no_null(void)
 
 static void test_magic_reject_empty(void)
 {
-    TEST_START("Reject empty input");
+    TEST_START("reject empty input");
     size_t out_len;
     uint8_t out[64];
     int rc = mozlz4_decompress((const uint8_t *)"", 0, out, &out_len, sizeof(out));
@@ -159,7 +163,7 @@ static void test_magic_reject_empty(void)
 
 static void test_magic_reject_short_input(void)
 {
-    TEST_START("Reject input shorter than 12 bytes (header)");
+    TEST_START("reject input shorter than 12 bytes (header)");
     uint8_t short_input[] = {'m','o','z','L','z','4','0','\0', 0,0,0};
     size_t out_len;
     uint8_t out[64];
@@ -170,7 +174,7 @@ static void test_magic_reject_short_input(void)
 
 static void test_magic_header_exact_12(void)
 {
-    TEST_START("Accept 12-byte header-only input (decompressed_size=0)");
+    TEST_START("accept 12-byte header-only input (decompressed_size=0)");
     uint8_t header[] = {'m','o','z','L','z','4','0','\0', 0,0,0,0};
     size_t out_len = 99;
     uint8_t out[64];
@@ -181,11 +185,11 @@ static void test_magic_header_exact_12(void)
 }
 
 
-/* === Group 2: Size Field === */
+/* ─── size field ─── */
 
 static void test_size_field_le_encoding(void)
 {
-    TEST_START("Size field is little-endian uint32 at offset 8");
+    TEST_START("size field is little-endian uint32 at offset 8");
     uint8_t buf[MOZLZ4_HEADER_LEN];
     memcpy(buf, RUST_MAGIC, MOZLZ4_MAGIC_LEN);
     put_u32_le(buf + 8, 0x04030201);
@@ -223,7 +227,7 @@ static void test_size_field_bad_magic(void)
 
 static void test_size_field_max_value(void)
 {
-    TEST_START("Size field handles max uint32 (0xFFFFFFFF)");
+    TEST_START("size field handles max uint32 (0xFFFFFFFF)");
     uint8_t buf[MOZLZ4_HEADER_LEN];
     memcpy(buf, RUST_MAGIC, MOZLZ4_MAGIC_LEN);
     put_u32_le(buf + 8, 0xFFFFFFFF);
@@ -235,18 +239,18 @@ static void test_size_field_max_value(void)
 }
 
 
-/* === Group 3: Roundtrip === */
+/* ─── roundtrip (compress then decompress) ─── */
 
 static void test_roundtrip_empty(void)
 {
-    TEST_START("Roundtrip: empty data (0 bytes)");
+    TEST_START("roundtrip: empty data (0 bytes)");
     ASSERT_EQ(roundtrip((const uint8_t *)"", 0), 0, "empty roundtrip");
     TEST_PASS();
 }
 
 static void test_roundtrip_single_byte(void)
 {
-    TEST_START("Roundtrip: single byte");
+    TEST_START("roundtrip: single byte");
     uint8_t data[] = {0x42};
     ASSERT_EQ(roundtrip(data, 1), 0, "single byte roundtrip");
     TEST_PASS();
@@ -254,7 +258,7 @@ static void test_roundtrip_single_byte(void)
 
 static void test_roundtrip_hello(void)
 {
-    TEST_START("Roundtrip: 'Hello, World!'");
+    TEST_START("roundtrip: 'Hello, World!'");
     const uint8_t *data = (const uint8_t *)"Hello, World!";
     ASSERT_EQ(roundtrip(data, 13), 0, "hello roundtrip");
     TEST_PASS();
@@ -262,7 +266,7 @@ static void test_roundtrip_hello(void)
 
 static void test_roundtrip_small_json(void)
 {
-    TEST_START("Roundtrip: small JSON (simulating search.json)");
+    TEST_START("roundtrip: small JSON (simulating search.json)");
     const char *json = "{\"engines\":[{\"name\":\"Google\",\"url\":\"https://google.com/search?q={searchTerms}\"}]}";
     ASSERT_EQ(roundtrip((const uint8_t *)json, strlen(json)), 0, "json roundtrip");
     TEST_PASS();
@@ -270,7 +274,7 @@ static void test_roundtrip_small_json(void)
 
 static void test_roundtrip_1kb_repetitive(void)
 {
-    TEST_START("Roundtrip: 1KB repetitive data (highly compressible)");
+    TEST_START("roundtrip: 1KB repetitive data (highly compressible)");
     uint8_t data[1024];
     memset(data, 'A', sizeof(data));
     ASSERT_EQ(roundtrip(data, sizeof(data)), 0, "1kb repetitive roundtrip");
@@ -279,7 +283,7 @@ static void test_roundtrip_1kb_repetitive(void)
 
 static void test_roundtrip_1kb_random(void)
 {
-    TEST_START("Roundtrip: 1KB pseudo-random data");
+    TEST_START("roundtrip: 1KB pseudo-random data");
     uint8_t data[1024];
     uint32_t state = 12345;
     for (size_t i = 0; i < sizeof(data); i++) {
@@ -292,7 +296,7 @@ static void test_roundtrip_1kb_random(void)
 
 static void test_roundtrip_4kb_json_like(void)
 {
-    TEST_START("Roundtrip: 4KB JSON-like data");
+    TEST_START("roundtrip: 4KB JSON-like data");
     char data[4096];
     int pos = 0;
     for (int i = 0; i < 50 && pos < (int)sizeof(data) - 100; i++) {
@@ -307,7 +311,7 @@ static void test_roundtrip_4kb_json_like(void)
 
 static void test_roundtrip_64kb(void)
 {
-    TEST_START("Roundtrip: 64KB data");
+    TEST_START("roundtrip: 64KB data");
     size_t sz = 65536;
     uint8_t *data = (uint8_t *)malloc(sz);
     ASSERT_TRUE(data != NULL, "alloc failed");
@@ -320,7 +324,7 @@ static void test_roundtrip_64kb(void)
 
 static void test_roundtrip_all_zeros(void)
 {
-    TEST_START("Roundtrip: 256 bytes of zeros");
+    TEST_START("roundtrip: 256 bytes of zeros");
     uint8_t data[256];
     memset(data, 0, sizeof(data));
     ASSERT_EQ(roundtrip(data, sizeof(data)), 0, "zeros roundtrip");
@@ -329,7 +333,7 @@ static void test_roundtrip_all_zeros(void)
 
 static void test_roundtrip_all_0xff(void)
 {
-    TEST_START("Roundtrip: 256 bytes of 0xFF");
+    TEST_START("roundtrip: 256 bytes of 0xFF");
     uint8_t data[256];
     memset(data, 0xFF, sizeof(data));
     ASSERT_EQ(roundtrip(data, sizeof(data)), 0, "0xff roundtrip");
@@ -338,7 +342,7 @@ static void test_roundtrip_all_0xff(void)
 
 static void test_roundtrip_binary_pattern(void)
 {
-    TEST_START("Roundtrip: binary pattern data");
+    TEST_START("roundtrip: binary pattern data");
     uint8_t data[512];
     for (size_t i = 0; i < sizeof(data); i++)
         data[i] = (uint8_t)((i * 7 + 13) ^ (i >> 3));
@@ -347,11 +351,11 @@ static void test_roundtrip_binary_pattern(void)
 }
 
 
-/* === Group 4: Compression Format === */
+/* ─── compression format ─── */
 
 static void test_compress_header_layout(void)
 {
-    TEST_START("Compressed output has correct header layout");
+    TEST_START("compressed output has correct header layout");
     const char *input = "test data for header layout check";
     size_t in_len = strlen(input);
     size_t cbound = mozlz4_compress_bound(in_len);
@@ -374,7 +378,7 @@ static void test_compress_header_layout(void)
 
 static void test_compress_outlen_consistency(void)
 {
-    TEST_START("Compressed size is consistent with header + data");
+    TEST_START("compressed size is consistent with header + data");
     const char *input = "consistency check data";
     size_t in_len = strlen(input);
     size_t cbound = mozlz4_compress_bound(in_len);
@@ -415,11 +419,11 @@ static void test_compress_bound_value(void)
 }
 
 
-/* === Group 5: Decompression Behavior === */
+/* ─── decompression behavior ─── */
 
 static void test_decompress_exact_match(void)
 {
-    TEST_START("Decompression produces exact byte-for-byte match");
+    TEST_START("decompression produces exact byte-for-byte match");
     const char *original = "The quick brown fox jumps over the lazy dog. 0123456789";
     size_t in_len = strlen(original);
     size_t cbound = mozlz4_compress_bound(in_len);
@@ -442,7 +446,7 @@ static void test_decompress_exact_match(void)
 
 static void test_decompress_safe_not_fast(void)
 {
-    TEST_START("Uses LZ4_decompress_safe — rejects undersized output");
+    TEST_START("uses LZ4_decompress_safe, rejects undersized output");
     const char *original = "test data for safety check with enough content to compress";
     size_t in_len = strlen(original);
     size_t cbound = mozlz4_compress_bound(in_len);
@@ -464,7 +468,7 @@ static void test_decompress_safe_not_fast(void)
 
 static void test_decompress_trailing_zeros(void)
 {
-    TEST_START("Decompress with trailing zeros after compressed data");
+    TEST_START("decompress with trailing zeros after compressed data");
     const char *input = "trailing bytes test";
     size_t in_len = strlen(input);
     size_t cbound = mozlz4_compress_bound(in_len);
@@ -493,11 +497,11 @@ static void test_decompress_trailing_zeros(void)
 }
 
 
-/* === Group 6: Edge Cases === */
+/* ─── edge cases ─── */
 
 static void test_header_only_zero_size(void)
 {
-    TEST_START("Header-only file with size=0 decompresses to empty");
+    TEST_START("header-only file with size=0 decompresses to empty");
     uint8_t header[MOZLZ4_HEADER_LEN];
     memcpy(header, RUST_MAGIC, MOZLZ4_MAGIC_LEN);
     put_u32_le(header + 8, 0);
@@ -511,7 +515,7 @@ static void test_header_only_zero_size(void)
 
 static void test_compress_empty_input(void)
 {
-    TEST_START("Compress empty input");
+    TEST_START("compress empty input");
     size_t cbound = mozlz4_compress_bound(0);
     uint8_t *out = (uint8_t *)malloc(cbound);
     size_t out_len = 0;
@@ -532,7 +536,7 @@ static void test_compress_empty_input(void)
 
 static void test_compress_tiny_buffer(void)
 {
-    TEST_START("Compress with exact-fit output buffer");
+    TEST_START("compress with exact-fit output buffer");
     uint8_t data[] = {0xAA};
     size_t cbound = mozlz4_compress_bound(1);
     uint8_t *out = (uint8_t *)malloc(cbound);
@@ -548,7 +552,7 @@ static void test_compress_tiny_buffer(void)
 
 static void test_size_field_equals_original(void)
 {
-    TEST_START("Stored decompressed size equals original input length");
+    TEST_START("stored decompressed size equals original input length");
     size_t sizes[] = {0, 1, 100, 1000, 65536};
     for (int i = 0; i < 5; i++) {
         size_t sz = sizes[i];
@@ -582,7 +586,7 @@ static void test_size_field_equals_original(void)
 
 static void test_compressed_smaller_for_compressible(void)
 {
-    TEST_START("Compressed output is smaller for highly compressible data");
+    TEST_START("compressed output is smaller for highly compressible data");
     uint8_t data[4096];
     memset(data, 'X', sizeof(data));
 
@@ -601,7 +605,7 @@ static void test_compressed_smaller_for_compressible(void)
 
 static void test_header_always_present(void)
 {
-    TEST_START("Compressed output always has at least MOZLZ4_HEADER_LEN bytes");
+    TEST_START("compressed output always has at least MOZLZ4_HEADER_LEN bytes");
     for (size_t sz = 0; sz <= 1000; sz = sz < 10 ? sz + 1 : sz * 5) {
         uint8_t *data = (uint8_t *)malloc(sz > 0 ? sz : 1);
         if (sz > 0) memset(data, 'A', sz);
@@ -629,7 +633,7 @@ static void test_header_always_present(void)
 
 static void test_roundtrip_256kb(void)
 {
-    TEST_START("Roundtrip: 256KB data");
+    TEST_START("roundtrip: 256KB data");
     size_t sz = 256 * 1024;
     uint8_t *data = (uint8_t *)malloc(sz);
     ASSERT_TRUE(data, "alloc");
@@ -642,7 +646,7 @@ static void test_roundtrip_256kb(void)
 
 static void test_roundtrip_1mb(void)
 {
-    TEST_START("Roundtrip: 1MB data");
+    TEST_START("roundtrip: 1MB data");
     size_t sz = 1024 * 1024;
     uint8_t *data = (uint8_t *)malloc(sz);
     ASSERT_TRUE(data, "alloc");
@@ -655,7 +659,7 @@ static void test_roundtrip_1mb(void)
 
 static void test_every_byte_pattern(void)
 {
-    TEST_START("Every byte preserved through compress+decompress (256 patterns)");
+    TEST_START("every byte preserved through compress+decompress (256 patterns)");
     for (int pattern = 0; pattern < 256; pattern++) {
         uint8_t data[128];
         memset(data, (uint8_t)pattern, sizeof(data));
@@ -670,11 +674,11 @@ static void test_every_byte_pattern(void)
 }
 
 
-/* === Main === */
+/* ─── main ─── */
 
 int main(void)
 {
-    printf("\n=== mozlz4 Test Suite ===\n\n");
+    printf("\n=== mozlz4 test suite ===\n\n");
 
     printf("[Group 1] Magic Number\n");
     test_magic_exact_match();
@@ -714,7 +718,7 @@ int main(void)
     test_decompress_safe_not_fast();
     test_decompress_trailing_zeros();
 
-    printf("\n[Group 6] Edge Cases & Invariants\n");
+    printf("\n[Group 6] Edge Cases\n");
     test_header_only_zero_size();
     test_compress_empty_input();
     test_compress_tiny_buffer();
@@ -725,10 +729,10 @@ int main(void)
     test_roundtrip_1mb();
     test_every_byte_pattern();
 
-    printf("\n=== Results ===\n");
-    printf("  Total:  %d\n", tests_run);
-    printf("  Passed: %d\n", tests_passed);
-    printf("  Failed: %d\n", tests_failed);
+    printf("\n=== results ===\n");
+    printf("  total:  %d\n", tests_run);
+    printf("  passed: %d\n", tests_passed);
+    printf("  failed: %d\n", tests_failed);
     printf("\n");
 
     return tests_failed > 0 ? 1 : 0;

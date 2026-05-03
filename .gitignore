@@ -1,0 +1,16 @@
+# build artifacts
+mozlz4
+mozlz4.exe
+test_mozlz4
+test_mozlz4.exe
+
+# editor stuff
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# os stuff
+.DS_Store
+Thumbs.db

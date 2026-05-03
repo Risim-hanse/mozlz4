@@ -1,0 +1,4 @@
+mozlz4 wrapper code: public domain
+LZ4 library: BSD-2-Clause (Yann Collet)
+
+See lz4/LICENSE for the LZ4 license details.
