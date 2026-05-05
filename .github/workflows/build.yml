@@ -139,9 +139,7 @@ jobs:
         run: |
           cd artifacts
           tar czf ../mozlz4-linux-x86_64.tar.gz -C mozlz4-linux-x86_64 mozlz4
-          cd mozlz4-windows-x86_64
-          zip ../mozlz4-windows-x86_64.zip mozlz4.exe
-          cd ..
+          (cd mozlz4-windows-x86_64 && zip ../../mozlz4-windows-x86_64.zip mozlz4.exe)
           tar czf ../mozlz4-macos-x86_64.tar.gz -C mozlz4-macos-x86_64 mozlz4
           tar czf ../mozlz4-macos-arm64.tar.gz -C mozlz4-macos-arm64 mozlz4
 
